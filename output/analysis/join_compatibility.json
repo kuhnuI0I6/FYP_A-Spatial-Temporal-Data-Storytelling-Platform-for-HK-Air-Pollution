@@ -1,0 +1,7 @@
+{
+  "joinable_datasets": [],
+  "notes": [
+    "Only join datasets when timestamp granularity and station/location identifiers align.",
+    "Do not force merges for incompatible time intervals; keep separate tables with documented assumptions."
+  ]
+}

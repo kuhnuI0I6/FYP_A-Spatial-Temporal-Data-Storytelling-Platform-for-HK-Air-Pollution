@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hong Kong Air Pollution Storytelling Platform</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <header class="hero">
+      <h1>A Spatial-Temporal Data Storytelling Platform for Hong Kong Air Pollution</h1>
+      <p>
+        This project explores three research stories: tropical cyclones and haze, traffic-related NO2,
+        and seasonal pollution patterns from 2020–2025.
+      </p>
+    </header>
+
+    <main class="scrolly-layout">
+      <section class="story-text">
+        <article class="step is-active" data-story="intro">
+          <h2>Research scope</h2>
+          <p>
+            Scroll to move through the three stories. The visualization panel stays persistent and updates as each section enters view.
+          </p>
+          <p class="note">All charts display observed data only. Missing or incompatible datasets are reported explicitly.</p>
+        </article>
+
+        <article class="step" data-story="story1">
+          <h2>Story 1 — Tropical Cyclones and Extreme Haze</h2>
+          <p>
+            Focus window: 24–29 July 2023 (Super Typhoon Doksuri). Hourly NO2, O3, RSP, and FSP are shown where available.
+          </p>
+          <p class="note">Temporal coincidence is not interpreted as causation.</p>
+        </article>
+
+        <article class="step" data-story="story2">
+          <h2>Story 2 — Traffic Flow and Roadside NO2 Patterns</h2>
+          <p>
+            Compare NO2 by hour of day, weekday/weekend, and station coverage. Traffic coupling is shown only when timestamps and locations can be matched.
+          </p>
+        </article>
+
+        <article class="step" data-story="story3">
+          <h2>Story 3 — Seasonal Air Quality in Hong Kong</h2>
+          <p>
+            Daily, monthly, and seasonal summaries compare pollutants by year and season with valid-observation counts.
+          </p>
+        </article>
+      </section>
+
+      <section class="viz-panel">
+        <div id="status" class="status"></div>
+        <div id="chart" class="chart"></div>
+        <div id="map" class="map"></div>
+      </section>
+    </main>
+  </body>
+</html>
