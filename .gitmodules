@@ -1,0 +1,3 @@
+[submodule "data/FYP-Data"]
+	path = data/FYP-Data
+	url = https://github.com/kuhnuI0I6/FYP-Data.git
