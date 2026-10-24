@@ -24,21 +24,45 @@ SEASON_MAP = {
 }
 
 
+
+
 def parse_datetime(df: pd.DataFrame) -> pd.Series:
-    dt_col = first_existing_column(df.columns, ["datetime", "timestamp", "date/time", "date"])
-    if dt_col:
-        dt = pd.to_datetime(df[dt_col], errors="coerce")
-        if dt.notna().sum() > 0:
-            return dt
-
-    date_col = first_existing_column(df.columns, ["date", "measurement date"])
+    date_col = first_existing_column(
+        df.columns, ["date", "measurement date"]
+    )
     hour_col = first_existing_column(df.columns, ["hour", "hr"])
-    if date_col and hour_col:
-        date_part = pd.to_datetime(df[date_col], errors="coerce")
-        hour = pd.to_numeric(df[hour_col], errors="coerce")
-        return date_part + pd.to_timedelta(hour.fillna(0), unit="h")
 
-    return pd.Series([pd.NaT] * len(df), index=df.index)
+    if date_col and hour_col:
+        # Source dates use day/month/year, e.g. 31/12/2025.
+        date_part = pd.to_datetime(
+            df[date_col],
+            format="%d/%m/%Y",
+            errors="coerce",
+        )
+        hour = pd.to_numeric(df[hour_col], errors="coerce")
+
+        # Source labels hours 01–24; verify the convention
+        # against the dataset documentation.
+        valid_hours = hour.dropna()
+        if (
+            not valid_hours.empty
+            and valid_hours.min() >= 1
+            and valid_hours.max() <= 24
+            and not (valid_hours == 0).any()
+        ):
+            hour = hour - 1
+
+        return date_part + pd.to_timedelta(hour, unit="h")
+
+    dt_col = first_existing_column(
+        df.columns, ["datetime", "timestamp", "date/time"]
+    )
+    if dt_col:
+        return pd.to_datetime(df[dt_col], errors="coerce")
+
+    return pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+
+
 
 
 def load_air_quality_files(repo_root: Path) -> tuple[pd.DataFrame, list[str]]:

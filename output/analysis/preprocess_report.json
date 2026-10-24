@@ -1,8 +1,4 @@
 {
-  "limitations": [
-    "No air-quality data available."
-  ],
-  "issues": [
-    "Air Quality folder not found"
-  ]
+  "limitations": [],
+  "issues": []
 }
