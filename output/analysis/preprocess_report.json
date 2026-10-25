@@ -1,4 +1,100 @@
 {
   "limitations": [],
+  "data_quality": {
+    "hour_convention": "Raw HOUR values 01-24 are converted to zero-based timestamps by subtracting one hour. The source documentation does not verify whether these labels mark the beginning or end of an interval; this is an explicit working assumption.",
+    "invalid_timestamps": 0,
+    "invalid_hours": 0,
+    "duplicate_date_hour_station_keys": 0,
+    "missing_station_names": 0,
+    "station_normalization_mappings": [
+      {
+        "raw": "CAUSEWAY BAY",
+        "normalized": "CAUSEWAY_BAY"
+      },
+      {
+        "raw": "CENTRAL",
+        "normalized": "CENTRAL"
+      },
+      {
+        "raw": "CENTRAL/WESTERN",
+        "normalized": "CENTRAL/WESTERN"
+      },
+      {
+        "raw": "EASTERN",
+        "normalized": "EASTERN"
+      },
+      {
+        "raw": "KWAI CHUNG",
+        "normalized": "KWAI_CHUNG"
+      },
+      {
+        "raw": "KWUN TONG",
+        "normalized": "KWUN_TONG"
+      },
+      {
+        "raw": "MONG KOK",
+        "normalized": "MONG_KOK"
+      },
+      {
+        "raw": "NORTH",
+        "normalized": "NORTH"
+      },
+      {
+        "raw": "SHAM SHUI PO",
+        "normalized": "SHAM_SHUI_PO"
+      },
+      {
+        "raw": "SHATIN",
+        "normalized": "SHATIN"
+      },
+      {
+        "raw": "SOUTHERN",
+        "normalized": "SOUTHERN"
+      },
+      {
+        "raw": "TAI PO",
+        "normalized": "TAI_PO"
+      },
+      {
+        "raw": "TAP MUN",
+        "normalized": "TAP_MUN"
+      },
+      {
+        "raw": "TSEUNG KWAN O",
+        "normalized": "TSEUNG_KWAN_O"
+      },
+      {
+        "raw": "TSUEN WAN",
+        "normalized": "TSUEN_WAN"
+      },
+      {
+        "raw": "TUEN MUN",
+        "normalized": "TUEN_MUN"
+      },
+      {
+        "raw": "TUNG CHUNG",
+        "normalized": "TUNG_CHUNG"
+      },
+      {
+        "raw": "YUEN LONG",
+        "normalized": "YUEN_LONG"
+      }
+    ],
+    "unexpected_pollutant_columns": [
+      "SO2",
+      "NOX",
+      "CO"
+    ],
+    "ambiguous_pollutant_columns": {},
+    "zero_valid_observation_groups": {
+      "daily": 160,
+      "monthly": 0,
+      "seasonal": 0
+    }
+  },
+  "aggregation": {
+    "mean_definition": "Mean of valid hourly observations (observation-weighted).",
+    "season_definition": "Calendar-year grouping: December is grouped with January and February of the same year."
+  },
   "issues": []
 }

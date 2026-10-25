@@ -55,16 +55,31 @@ async function renderStory1() {
   }
   const grouped = {};
   data.forEach((r) => {
-    const k = r.pollutant || 'Unknown';
-    if (!grouped[k]) grouped[k] = { x: [], y: [], type: 'scatter', mode: 'lines', name: k };
-    grouped[k].x.push(r.datetime);
-    grouped[k].y.push(Number(r.value));
+    const pollutant = r.pollutant || 'Unknown';
+    const station = r.station_id || 'Station unavailable';
+    const key = `${pollutant}::${station}`;
+    if (!grouped[key]) {
+      grouped[key] = {
+        x: [],
+        y: [],
+        type: 'scatter',
+        mode: 'lines',
+        name: pollutant,
+        legendgroup: pollutant,
+        showlegend: !Object.values(grouped).some((trace) => trace.legendgroup === pollutant),
+        hovertemplate: `${pollutant} — ${station}<br>%{x}<br>%{y}<extra></extra>`,
+      };
+    }
+    const rawValue = (r.value ?? '').trim();
+    const numericValue = rawValue === '' ? null : Number(rawValue);
+    grouped[key].x.push(r.datetime);
+    grouped[key].y.push(Number.isFinite(numericValue) ? numericValue : null);
   });
   Plotly.newPlot(chartEl, Object.values(grouped), {
     title: 'Hourly pollutant patterns around Doksuri',
     xaxis: { title: 'Datetime' },
     yaxis: { title: 'Concentration (original units)' },
-    legend: { orientation: 'h' },
+    legend: { orientation: 'h', groupclick: 'togglegroup' },
   }, { responsive: true });
 }
 
