@@ -129,6 +129,66 @@ async function renderStory3() {
   }, { responsive: true });
 }
 
+async function renderStory4() {
+  const filter = document.getElementById('aqhi-station-filter');
+  setStatus('Story 4: Monthly counts of daily maximum AQHI categories.');
+  const data = await fetchCsv('../output/analysis/aqhi_daily_max_category_counts.csv');
+  if (!data.length) {
+    renderPlaceholder('Story 4 — Daily Maximum AQHI Categories', 'No compatible AQHI dataset found yet.');
+    return;
+  }
+  const stations = [...new Set(data.map((row) => row.station_raw).filter(Boolean))].sort();
+  if (filter && !filter.options.length) {
+    stations.forEach((station) => {
+      const option = document.createElement('option');
+      option.value = station;
+      option.textContent = station;
+      filter.appendChild(option);
+    });
+  }
+  const selected = filter?.value || stations[0];
+  const selectedRows = data.filter((row) => row.station_raw === selected);
+  const months = [...new Set(data.map((row) => row.source_month))].sort();
+  const categories = [...Array(10)].map((_, index) => String(index + 1)).concat('10+');
+  const traces = [];
+  ['unstarred', 'starred'].forEach((starStatus) => {
+    categories.forEach((category) => {
+      traces.push({
+        x: months,
+        y: months.map((month) => {
+          const row = selectedRows.find((item) =>
+            item.source_month === month &&
+            item.category === category &&
+            item.star_status === starStatus
+          );
+          return row ? Number(row.category_count) : null;
+        }),
+        type: 'bar',
+        name: `${category}${starStatus === 'starred' ? ' *' : ''}`,
+        legendgroup: starStatus,
+        visible: true,
+        hovertemplate: `${selected} — ${category}${starStatus === 'starred' ? ' (starred)' : ''}<br>%{x}: %{y}<extra></extra>`,
+      });
+    });
+  });
+  const qualityRows = selectedRows.filter((row) =>
+    ['missing', 'unresolved', 'unknown'].includes(row.category)
+  );
+  const qualityCount = qualityRows.reduce((sum, row) => sum + Number(row.category_count), 0);
+  const unavailable = ['南區', '北區'].includes(selected)
+    ? months.filter((month) => month < '202006').length
+    : 0;
+  if (filter) filter.onchange = () => renderStory4();
+  setStatus(`Story 4: ${selected}; daily maximum categories. Quality-marked/missing records: ${qualityCount}. Unavailable pre-June 2020 months: ${unavailable}.`);
+  Plotly.newPlot(chartEl, traces, {
+    title: `Monthly daily maximum AQHI categories — ${selected}`,
+    barmode: 'group',
+    xaxis: { title: 'Month' },
+    yaxis: { title: 'Daily maximum observation count' },
+    legend: { orientation: 'h' },
+  }, { responsive: true });
+}
+
 function activateStep(step) {
   document.querySelectorAll('.step').forEach((el) => el.classList.remove('is-active'));
   step.classList.add('is-active');
@@ -136,6 +196,7 @@ function activateStep(step) {
   if (story === 'story1') return renderStory1();
   if (story === 'story2') return renderStory2();
   if (story === 'story3') return renderStory3();
+  if (story === 'story4') return renderStory4();
   setStatus('Intro: inspect repository data first, then run preprocessing scripts.');
   renderPlaceholder('Hong Kong Air Pollution Data Storytelling', 'Scroll to enter story sections.');
 }
