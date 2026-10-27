@@ -402,26 +402,284 @@ async function renderStory1() {
     : 'Story 1: analysis outputs not found in output/analysis/story1/.');
 }
 
-async function renderStory2() {
-  setStatus('Story 2: NO2 hourly profile by station and weekday/weekend.');
-  const data = await fetchCsv('../output/analysis/story2_no2_hourly_profiles.csv');
-  if (!data.length) {
-    renderPlaceholder('Story 2 — Traffic and NO2', 'No compatible Story 2 dataset found yet.');
+const STORY2_BASE = '../output/analysis/story2/';
+const STORY2_COLORS = {
+  weekday: '#2c7a7b',
+  weekend: '#805ad5',
+  weekdayFill: 'rgba(44,122,123,0.15)',
+  weekendFill: 'rgba(128,90,213,0.15)',
+  neutral: '#7a8699',
+  neutralFill: 'rgba(122,134,153,0.2)',
+};
+let story2Loaded = null;
+
+// Blank CSV cells (pandas writes NaN as an empty field) become gaps, never zeros.
+function story2Num(value) {
+  if (value === undefined || value === '' || value === 'nan') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function fetchJson(path) {
+  try {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function loadStory2() {
+  if (!story2Loaded) {
+    story2Loaded = Promise.all([
+      fetchCsv(`${STORY2_BASE}story2_city_hourly_profile.csv`),
+      fetchCsv(`${STORY2_BASE}story2_hourly_weekday_weekend_difference.csv`),
+      fetchCsv(`${STORY2_BASE}story2_station_summary.csv`),
+      fetchJson(`${STORY2_BASE}story2_validation_summary.json`),
+    ]);
+  }
+  return story2Loaded;
+}
+
+function sortByHour(rows) {
+  return [...rows].sort((a, b) => Number(a.hour) - Number(b.hour));
+}
+
+function story2Layout(extra) {
+  return {
+    margin: { t: 50, r: 20, b: 60, l: 60 },
+    legend: { orientation: 'h', y: -0.2 },
+    ...extra,
+  };
+}
+
+function renderStory2Rhythm(city, validation) {
+  const traces = [];
+  const peaks = {};
+  const stationCounts = [];
+  [
+    ['weekday', 'Weekday', STORY2_COLORS.weekday, STORY2_COLORS.weekdayFill],
+    ['weekend', 'Weekend', STORY2_COLORS.weekend, STORY2_COLORS.weekendFill],
+  ].forEach(([key, label, color, fill]) => {
+    const rows = sortByHour(city.filter((r) => r.day_type === key));
+    const x = rows.map((r) => Number(r.hour));
+    traces.push({ x, y: rows.map((r) => story2Num(r.p75_no2)), mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false });
+    traces.push({ x, y: rows.map((r) => story2Num(r.p25_no2)), mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: fill, hoverinfo: 'skip', showlegend: false });
+    traces.push({
+      x,
+      y: rows.map((r) => story2Num(r.median_no2)),
+      mode: 'lines+markers',
+      name: `${label} median`,
+      line: { color },
+      marker: { color },
+      customdata: rows.map((r) => r.n_stations),
+      hovertemplate: `${label} %{x}:00<br>Median %{y:.1f}<br>Stations: %{customdata}<extra></extra>`,
+    });
+    const valid = rows.filter((r) => story2Num(r.median_no2) !== null);
+    if (valid.length) {
+      const high = valid.reduce((a, b) => (story2Num(b.median_no2) > story2Num(a.median_no2) ? b : a));
+      const low = valid.reduce((a, b) => (story2Num(b.median_no2) < story2Num(a.median_no2) ? b : a));
+      peaks[key] = { label, high, low };
+    }
+    rows.forEach((r) => { if (story2Num(r.n_stations) !== null) stationCounts.push(Number(r.n_stations)); });
+  });
+
+  Plotly.newPlot(chartEl, traces, story2Layout({
+    title: 'Median NO₂ by hour of day (across qualifying stations)',
+    xaxis: { title: 'Hour of day (0–23)', dtick: 3 },
+    yaxis: { title: 'NO₂ (units as recorded; not verified)' },
+  }), { responsive: true });
+
+  const sentences = Object.values(peaks).map((p) =>
+    `${p.label} median is highest at ${p.high.hour}:00 (${story2Num(p.high.median_no2).toFixed(1)}) and lowest at ${p.low.hour}:00 (${story2Num(p.low.median_no2).toFixed(1)}).`);
+  const counts = validation?.qualifying_cells_by_day_type;
+  const countText = counts
+    ? `Qualifying station-hour cells (at least 50% of expected days): ${counts.weekday} weekday and ${counts.weekend} weekend.`
+    : '';
+  const range = stationCounts.length ? `Stations per hour: ${Math.min(...stationCounts)} to ${Math.max(...stationCounts)}.` : '';
+  document.getElementById('story2-rhythm-note').textContent = [...sentences, countText, range].filter(Boolean).join(' ');
+}
+
+function renderStory2Gap(diffRows) {
+  const rows = sortByHour(diffRows);
+  const x = rows.map((r) => Number(r.hour));
+  const median = rows.map((r) => story2Num(r.median_difference));
+  const total = median.filter((v) => v !== null).length;
+  const weekdayHigher = median.filter((v) => v !== null && v > 0).length;
+  const weekendHigher = median.filter((v) => v !== null && v < 0).length;
+  const pairs = rows.map((r) => story2Num(r.n_station_pairs)).filter((v) => v !== null);
+
+  Plotly.newPlot(chartEl, [
+    { x, y: rows.map((r) => story2Num(r.p75_difference)), mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false },
+    { x, y: rows.map((r) => story2Num(r.p25_difference)), mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: STORY2_COLORS.neutralFill, hoverinfo: 'skip', showlegend: false },
+    {
+      x,
+      y: median,
+      mode: 'lines+markers',
+      name: 'Median difference',
+      line: { color: STORY2_COLORS.neutral },
+      marker: { color: STORY2_COLORS.neutral },
+      customdata: rows.map((r) => r.n_station_pairs),
+      hovertemplate: 'Hour %{x}:00<br>Median difference %{y:.2f}<br>Station pairs: %{customdata}<extra></extra>',
+    },
+  ], story2Layout({
+    title: 'Weekday minus weekend NO₂ (positive = weekday higher)',
+    xaxis: { title: 'Hour of day (0–23)', dtick: 3 },
+    yaxis: { title: 'Difference (units as recorded; not verified)', zeroline: true },
+    shapes: [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 0, y1: 0, line: { color: '#333', dash: 'dot', width: 1 } }],
+  }), { responsive: true });
+
+  const pairRange = pairs.length ? `Station pairs per hour: ${Math.min(...pairs)} to ${Math.max(...pairs)}.` : '';
+  document.getElementById('story2-gap-note').textContent =
+    `Across ${total} hours, the median station difference was positive (weekday higher) in ${weekdayHigher} hours and negative (weekend higher) in ${weekendHigher}. ${pairRange}`;
+}
+
+function story2BuildTable(container, headers, rows) {
+  container.replaceChildren();
+  const table = document.createElement('table');
+  table.className = 'story2-table';
+  const thead = table.createTHead();
+  const headRow = thead.insertRow();
+  headers.forEach((h) => {
+    const th = document.createElement('th');
+    th.textContent = h;
+    headRow.appendChild(th);
+  });
+  const tbody = table.createTBody();
+  rows.forEach((cells) => {
+    const tr = tbody.insertRow();
+    cells.forEach((value) => {
+      const td = tr.insertCell();
+      td.textContent = value;
+    });
+  });
+  container.appendChild(table);
+}
+
+function renderStory2Stations(stations) {
+  const rows = [...stations].sort((a, b) => (story2Num(b.weekday_qualifying_mean) ?? -Infinity) - (story2Num(a.weekday_qualifying_mean) ?? -Infinity));
+  const ids = rows.map((r) => r.station_id);
+
+  Plotly.newPlot(chartEl, [
+    {
+      type: 'bar',
+      orientation: 'h',
+      name: 'Weekday',
+      y: ids,
+      x: rows.map((r) => story2Num(r.weekday_qualifying_mean)),
+      marker: { color: STORY2_COLORS.weekday },
+      customdata: rows.map((r) => [r.weekday_valid_obs, r.weekday_qualifying_hours]),
+      hovertemplate: '%{y}<br>Weekday mean %{x:.1f}<br>Valid observations: %{customdata[0]}<br>Qualifying hours: %{customdata[1]}<extra></extra>',
+    },
+    {
+      type: 'bar',
+      orientation: 'h',
+      name: 'Weekend',
+      y: ids,
+      x: rows.map((r) => story2Num(r.weekend_qualifying_mean)),
+      marker: { color: STORY2_COLORS.weekend },
+      customdata: rows.map((r) => [r.weekend_valid_obs, r.weekend_qualifying_hours]),
+      hovertemplate: '%{y}<br>Weekend mean %{x:.1f}<br>Valid observations: %{customdata[0]}<br>Qualifying hours: %{customdata[1]}<extra></extra>',
+    },
+  ], story2Layout({
+    title: 'Mean NO₂ by station (qualifying hours only)',
+    barmode: 'group',
+    xaxis: { title: 'Mean NO₂ (units as recorded; not verified)' },
+    yaxis: { autorange: 'reversed' },
+    margin: { t: 50, r: 20, b: 60, l: 110 },
+  }), { responsive: true });
+
+  const flagged = (key) => rows.filter((r) => r[key] === 'True').map((r) => r.station_id);
+  const lowMean = flagged('low_mean_flag');
+  const lateStart = flagged('coverage_start_flag');
+  const overlap = flagged('name_overlap_flag');
+  document.getElementById('story2-station-note').textContent = [
+    `Stations with a low mean (below half the median station mean): ${lowMean.join(', ') || 'none'}.`,
+    `Stations with a late coverage start: ${lateStart.join(', ') || 'none'}.`,
+    `Stations whose names share a base (kept as separate series, not verified as duplicates): ${overlap.join(', ') || 'none'}.`,
+  ].join(' ');
+
+  story2BuildTable(
+    document.getElementById('story2-station-table'),
+    ['Station', 'Weekday valid obs', 'Weekend valid obs', 'Weekday qualifying hours', 'Weekend qualifying hours', 'Flags'],
+    rows.map((r) => {
+      const notes = [];
+      if (r.low_mean_flag === 'True') notes.push('low mean');
+      if (r.coverage_start_flag === 'True') notes.push('late start');
+      if (r.name_overlap_flag === 'True') notes.push('name overlap');
+      return [r.station_id, r.weekday_valid_obs, r.weekend_valid_obs, r.weekday_qualifying_hours, r.weekend_qualifying_hours, notes.join(', ') || '—'];
+    }),
+  );
+}
+
+function renderStory2Limits(validation) {
+  if (!validation) {
+    renderPlaceholder('Story 2 — Validation counts', 'Story 2 validation summary not found in output/analysis/story2/.');
     return;
   }
-  const station = data[0].station_id;
-  const stationData = data.filter((r) => r.station_id === station);
-  const weekday = stationData.filter((r) => r.day_type === 'weekday');
-  const weekend = stationData.filter((r) => r.day_type === 'weekend');
-  Plotly.newPlot(chartEl, [
-    { x: weekday.map((d) => d.hour), y: weekday.map((d) => Number(d.avg_no2)), type: 'scatter', mode: 'lines+markers', name: 'Weekday' },
-    { x: weekend.map((d) => d.hour), y: weekend.map((d) => Number(d.avg_no2)), type: 'scatter', mode: 'lines+markers', name: 'Weekend' },
-  ], {
-    title: `NO2 hourly profile (${station || 'station unavailable'})`,
-    xaxis: { title: 'Hour of day' },
-    yaxis: { title: 'NO2 (original units)' },
-  }, { responsive: true });
+  const load = validation.load ?? {};
+  const dedupe = validation.deduplication ?? {};
+  const cmp = validation.comparison_with_existing_csv ?? {};
+  const counts = validation.qualifying_cells_by_day_type ?? {};
+  const labels = [
+    'Stations',
+    'Station × hour × day-type cells',
+    'Qualifying cells, weekday (≥50% of expected days)',
+    'Qualifying cells, weekend (≥50% of expected days)',
+    'NO₂ rows in the long file',
+    'Rows used after removing missing or non-numeric values',
+    'Missing or non-numeric values excluded (not zero)',
+    'Exact duplicate rows removed',
+    'Conflicting duplicate rows removed',
+    'Cells matching the existing CSV (valid observation counts)',
+    'Valid observation count mismatches with the existing CSV',
+  ];
+  const values = [
+    validation.stations,
+    validation.station_hour_day_type_cells,
+    counts.weekday,
+    counts.weekend,
+    load.no2_rows,
+    load.usable_rows,
+    load.missing_or_nonnumeric_value_rows,
+    dedupe.exact_duplicate_rows_dropped,
+    dedupe.conflicting_rows_dropped,
+    cmp.matched_cells,
+    cmp.valid_obs_mismatches,
+  ].map((v) => (v === undefined || v === null ? 'n/a' : String(v)));
+  Plotly.newPlot(chartEl, [{
+    type: 'table',
+    header: { values: ['Check', 'Value'], align: 'left' },
+    cells: { values: [labels, values], align: 'left' },
+  }], story2Layout({ title: 'Story 2 data checks (from story2_validation_summary.json)' }), { responsive: true });
 }
+
+async function renderStory2(step) {
+  const view = step.dataset.view;
+  const statusText = {
+    rhythm: 'Story 2: median NO₂ by hour, weekday and weekend, across qualifying stations.',
+    gap: 'Story 2: weekday minus weekend NO₂ difference by hour.',
+    stations: 'Story 2: mean NO₂ by station, weekday and weekend, with valid-observation counts.',
+    limits: 'Story 2: data checks and limitations.',
+  };
+  setStatus(statusText[view] ?? 'Story 2');
+  const [city, diff, stations, validation] = await loadStory2();
+  if (view === 'rhythm') {
+    if (!city.length) return renderPlaceholder('Story 2 — Daily NO₂ rhythm', 'Story 2 outputs not found in output/analysis/story2/.');
+    return renderStory2Rhythm(city, validation);
+  }
+  if (view === 'gap') {
+    if (!diff.length) return renderPlaceholder('Story 2 — Weekday minus weekend', 'Story 2 outputs not found in output/analysis/story2/.');
+    return renderStory2Gap(diff);
+  }
+  if (view === 'stations') {
+    if (!stations.length) return renderPlaceholder('Story 2 — Station comparison', 'Story 2 outputs not found in output/analysis/story2/.');
+    return renderStory2Stations(stations);
+  }
+  return renderStory2Limits(validation);
+}
+
 
 async function renderStory3() {
   setStatus('Story 3: Seasonal pollutant averages and supporting counts.');
@@ -622,12 +880,14 @@ function activateStep(step) {
   const story = step.dataset.story;
   // Stories 1 and 4 have no verified station coordinates, so the map is hidden to give the charts more room.
   const isStory1 = story === 'story1';
+  const isStory2 = story === 'story2';
   const isStory4 = story === 'story4';
-  mapEl.hidden = isStory1 || isStory4;
-  chartEl.classList.toggle('chart--tall', isStory1 || isStory4);
+  // Story 2 no longer shows the decorative reference map; its station-comparison view uses a taller chart.
+  mapEl.hidden = isStory1 || isStory2 || isStory4;
+  chartEl.classList.toggle('chart--tall', isStory1 || isStory4 || (isStory2 && step.dataset.view === 'stations'));
   if (!mapEl.hidden && map) map.invalidateSize();
   if (story === 'story1') return renderStory1();
-  if (story === 'story2') return renderStory2();
+  if (story === 'story2') return renderStory2(step);
   if (story === 'story3') return renderStory3();
   if (story === 'story4') return renderStory4();
   setStatus('Intro: inspect repository data first, then run preprocessing scripts.');
@@ -645,8 +905,10 @@ function initObserver() {
   // so Story 1 activates when it crosses a band across the middle of the viewport instead.
   const story1Observer = new IntersectionObserver(onIntersect, { threshold: 0, rootMargin: '-45% 0px -45% 0px' });
 
+  // Story 1 and Story 2 steps are taller than the 45% threshold allows, so they use the middle-band observer.
   document.querySelectorAll('.step').forEach((step) => {
-    (step.dataset.story === 'story1' ? story1Observer : observer).observe(step);
+    const useBand = step.dataset.story === 'story1' || step.dataset.story === 'story2';
+    (useBand ? story1Observer : observer).observe(step);
   });
 }
 

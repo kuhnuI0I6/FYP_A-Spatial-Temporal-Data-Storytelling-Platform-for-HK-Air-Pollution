@@ -95,6 +95,18 @@ body {
 .story1-table th { color: var(--muted); font-weight: 600; }
 .story1-limits { padding-left: 1.2rem; }
 
+.story2-scroll { overflow-x: auto; margin: 0.5rem 0; }
+.story2-table { border-collapse: collapse; font-size: 0.85rem; width: 100%; }
+.story2-table th,
+.story2-table td {
+  border-bottom: 1px solid #dce3f7;
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+.story2-table th { color: var(--muted); font-weight: 600; }
+.story2-limits { padding-left: 1.2rem; }
+
 @media (max-width: 900px) {
   .scrolly-layout { grid-template-columns: 1fr; }
   .viz-panel { position: relative; min-height: auto; }

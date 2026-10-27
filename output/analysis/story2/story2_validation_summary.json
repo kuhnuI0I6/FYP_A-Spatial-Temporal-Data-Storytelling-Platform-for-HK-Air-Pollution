@@ -1,0 +1,166 @@
+{
+  "assumptions": {
+    "timezone": "HKT (UTC+8) - unverified working assumption",
+    "hour_convention": "hour of day taken from the recorded timestamp - EPD hour convention unverified",
+    "day_type": "weekday = Monday to Friday, weekend = Saturday and Sunday (calendar only; public holidays not adjusted)",
+    "units": "NO2 values are used as recorded in the source; units not verified for this file",
+    "coverage_rule": "a station-hour-day-type cell qualifies if valid days >= 50% of expected days",
+    "expected_days_rule": "expected days = calendar weekdays or weekend days from the station's first to last valid NO2 date (inclusive)",
+    "missing_values": "missing values are excluded, not treated as zero; zero is a valid value"
+  },
+  "load": {
+    "raw_rows_all_pollutants": 3751104,
+    "no2_rows": 937776,
+    "invalid_timestamp_rows": 0,
+    "missing_station_rows": 0,
+    "missing_or_nonnumeric_value_rows": 28030,
+    "usable_rows": 909746
+  },
+  "deduplication": {
+    "conflicting_keys_dropped": 0,
+    "conflicting_rows_dropped": 0,
+    "exact_duplicate_rows_dropped": 0,
+    "retained_observations": 909746
+  },
+  "stations": 18,
+  "station_hour_day_type_cells": 864,
+  "qualifying_cells_by_day_type": {
+    "weekday": 428,
+    "weekend": 430
+  },
+  "min_coverage": 0.5,
+  "min_stations_for_city_summary": 3,
+  "flagged_station_checks": {
+    "CENTRAL": {
+      "overlap_with_CENTRAL/WESTERN": {
+        "overlapping_hours": 49532,
+        "identical_share": 0.004
+      }
+    },
+    "CENTRAL/WESTERN": {
+      "overlap_with_CENTRAL": {
+        "overlapping_hours": 49532,
+        "identical_share": 0.004
+      }
+    },
+    "TAP_MUN": {
+      "yearly_mean": {
+        "2020": 8.84,
+        "2021": 9.596,
+        "2022": 7.53,
+        "2023": 8.208,
+        "2024": 7.927,
+        "2025": 8.266
+      },
+      "yearly_valid_obs": {
+        "2020": 8341,
+        "2021": 8416,
+        "2022": 8414,
+        "2023": 8378,
+        "2024": 8463,
+        "2025": 8375
+      }
+    }
+  },
+  "comparison_with_existing_csv": {
+    "available": true,
+    "existing_cells": 864,
+    "matched_cells": 864,
+    "existing_only_cells": 0,
+    "new_only_cells": 0,
+    "valid_obs_mismatches": 0,
+    "max_abs_mean_difference": 0.0
+  },
+  "station_flags": {
+    "CAUSEWAY_BAY": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "CENTRAL": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": true
+    },
+    "CENTRAL/WESTERN": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": true
+    },
+    "EASTERN": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "KWAI_CHUNG": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "KWUN_TONG": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "MONG_KOK": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "NORTH": {
+      "low_mean_flag": false,
+      "coverage_start_flag": true,
+      "name_overlap_flag": false
+    },
+    "SHAM_SHUI_PO": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "SHATIN": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "SOUTHERN": {
+      "low_mean_flag": false,
+      "coverage_start_flag": true,
+      "name_overlap_flag": false
+    },
+    "TAI_PO": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "TAP_MUN": {
+      "low_mean_flag": true,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "TSEUNG_KWAN_O": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "TSUEN_WAN": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "TUEN_MUN": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "TUNG_CHUNG": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    },
+    "YUEN_LONG": {
+      "low_mean_flag": false,
+      "coverage_start_flag": false,
+      "name_overlap_flag": false
+    }
+  }
+}
