@@ -1,0 +1,11 @@
+{
+  "assumptions": {
+    "timezone": "HKT (UTC+8) - unverified working assumption",
+    "hour_convention": "HOUR 01 -> 00:00 same date, HOUR 24 -> 23:00 same date - unverified working assumption",
+    "bin_convention": "hourly bins [h, h+1); observation timestamp is the assumed interval start",
+    "baseline_rule": "24 h and 48 h before/after windows; a window is full if all raw bins are free, reduced if >= 12 free bins (MIN_BASELINE_FREE_HOURS) but not all, otherwise excluded",
+    "48h_comparison_rule": "window_48h_full_only keeps only events whose before AND after 48 h windows are both full"
+  },
+  "n_intervals": 136,
+  "n_events": 44
+}

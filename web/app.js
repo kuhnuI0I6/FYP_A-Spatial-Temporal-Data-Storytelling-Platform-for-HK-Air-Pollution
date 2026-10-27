@@ -46,41 +46,360 @@ function renderPlaceholder(title, message) {
   }, { responsive: true });
 }
 
-async function renderStory1() {
-  setStatus('Story 1: Doksuri event window (24–29 Jul 2023), hourly pollutants where available.');
-  const data = await fetchCsv('../output/analysis/story1_doksuri_window.csv');
-  if (!data.length) {
-    renderPlaceholder('Story 1 — Tropical Cyclones and Extreme Haze', 'No compatible Story 1 dataset found yet. Run preprocessing scripts.');
+const STORY1_BASE = '../output/analysis/story1/';
+const STORY1_COLORS = { low: '#1f6fb2', high: '#c8553d', neutral: '#7a8699' };
+const STORY1_POLLUTANT_ORDER = ['NO2', 'O3', 'RSP', 'FSP'];
+const STORY1_ROLE_LABELS = {
+  primary_24h: 'Primary 24 h analysis (main result)',
+  timing_sensitivity: 'Timing check (hour-bin shift)',
+  transparency_only_48h_all_events: '48 h, all events: transparency only (not the main sensitivity result)',
+  sensitivity_48h_full_windows_only: '48 h, full-window events only: main 48 h sensitivity',
+};
+let story1Loaded = null;
+let story1ControlsReady = false;
+
+async function fetchStory1Json(path) {
+  try {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function loadStory1() {
+  if (!story1Loaded) {
+    story1Loaded = Promise.all([
+      fetchCsv(`${STORY1_BASE}story1_events.csv`),
+      fetchCsv(`${STORY1_BASE}story1_timeline_segments.csv`),
+      fetchCsv(`${STORY1_BASE}story1_unit_medians.csv`),
+      fetchCsv(`${STORY1_BASE}story1_pairs.csv`),
+      fetchCsv(`${STORY1_BASE}story1_period_medians.csv`),
+      fetchCsv(`${STORY1_BASE}story1_baseline_windows.csv`),
+      fetchCsv(`${STORY1_BASE}story1_sensitivity_summary.csv`),
+      fetchStory1Json(`${STORY1_BASE}story1_validation_summary.json`),
+    ]).then(([events, segments, units, pairs, periods, windows, sensitivity, validation]) => ({
+      events, segments, units, pairs, periods, windows, sensitivity, validation,
+    }));
+  }
+  return story1Loaded;
+}
+
+function story1Number(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function story1Iso(value) {
+  return String(value).replace(' ', 'T');
+}
+
+function story1Distinct(rows, key) {
+  return new Set(rows.map((r) => r[key])).size;
+}
+
+function story1Placeholder(el, message) {
+  Plotly.newPlot(el, [], {
+    xaxis: { visible: false },
+    yaxis: { visible: false },
+    annotations: [{ text: message, x: 0.5, y: 0.5, showarrow: false, xref: 'paper', yref: 'paper' }],
+    margin: { t: 20, r: 20, b: 20, l: 20 },
+  }, { responsive: true });
+}
+
+function story1Table(headers, rows) {
+  const table = document.createElement('table');
+  table.className = 'story1-table';
+  const headRow = table.createTHead().insertRow();
+  headers.forEach((h) => {
+    const th = document.createElement('th');
+    th.scope = 'col';
+    th.textContent = h;
+    headRow.appendChild(th);
+  });
+  const body = table.createTBody();
+  rows.forEach((cells) => {
+    const tr = body.insertRow();
+    cells.forEach((c) => { tr.insertCell().textContent = c ?? ''; });
+  });
+  return table;
+}
+
+function renderStory1Timeline(data) {
+  if (!data.events.length || !data.segments.length) {
+    renderPlaceholder('Story 1 — Warning-signal timeline', 'Story 1 timeline outputs not found. Run scripts/story1_analysis.py.');
     return;
   }
-  const grouped = {};
-  data.forEach((r) => {
-    const pollutant = r.pollutant || 'Unknown';
-    const station = r.station_id || 'Station unavailable';
-    const key = `${pollutant}::${station}`;
-    if (!grouped[key]) {
-      grouped[key] = {
-        x: [],
-        y: [],
-        type: 'scatter',
-        mode: 'lines',
-        name: pollutant,
-        legendgroup: pollutant,
-        showlegend: !Object.values(grouped).some((trace) => trace.legendgroup === pollutant),
-        hovertemplate: `${pollutant} — ${station}<br>%{x}<br>%{y}<extra></extra>`,
-      };
-    }
-    const rawValue = (r.value ?? '').trim();
-    const numericValue = rawValue === '' ? null : Number(rawValue);
-    grouped[key].x.push(r.datetime);
-    grouped[key].y.push(Number.isFinite(numericValue) ? numericValue : null);
+  const labels = new Map(data.events.map((e) => [e.event_id, `${e.event_id} · ${e.storm_name}`]));
+  // Plotly draws category axes bottom-up, so reversing puts E01 at the top.
+  const categories = data.events.map((e) => labels.get(e.event_id)).reverse();
+  const traces = ['low', 'high'].map((group) => {
+    const x = [];
+    const y = [];
+    const text = [];
+    data.segments.filter((s) => s.signal_group === group).forEach((s) => {
+      const label = labels.get(s.event_id) ?? s.event_id;
+      const hover = `${label}<br>Signal ${s.signal_label}<br>${s.start} to ${s.end}<br>${s.duration_minutes} minutes`;
+      x.push(story1Iso(s.start), story1Iso(s.end), null);
+      y.push(label, label, null);
+      text.push(hover, hover, '');
+    });
+    return {
+      type: 'scatter',
+      mode: 'lines+markers',
+      name: group === 'low' ? 'Lower signals (1, 3)' : 'Higher signals (8, 9, 10)',
+      x,
+      y,
+      text,
+      hoverinfo: 'text',
+      line: { color: STORY1_COLORS[group], width: 10 },
+      marker: { color: STORY1_COLORS[group], size: 4 },
+    };
   });
-  Plotly.newPlot(chartEl, Object.values(grouped), {
-    title: 'Hourly pollutant patterns around Doksuri',
-    xaxis: { title: 'Datetime' },
-    yaxis: { title: 'Concentration (original units)' },
-    legend: { orientation: 'h', groupclick: 'togglegroup' },
+  Plotly.newPlot(chartEl, traces, {
+    title: 'HKO tropical cyclone warning-signal intervals by event',
+    xaxis: { type: 'date', title: 'Time as recorded in HKO workbook (HKT assumed; not independently verified)' },
+    yaxis: { type: 'category', categoryorder: 'array', categoryarray: categories, automargin: true },
+    legend: { orientation: 'h' },
+    margin: { t: 50, r: 20, b: 60, l: 20 },
   }, { responsive: true });
+}
+
+function renderStory1Groups(data, pollutant) {
+  const el = document.getElementById('story1-group-chart');
+  const note = document.getElementById('story1-group-note');
+  const all = data.units.filter((u) => u.pollutant === pollutant);
+  const usable = all.filter((u) => u.retained_75 === 'True' && story1Number(u.median) !== null);
+  const groups = [
+    { key: 'low', label: 'Lower (1, 3)' },
+    { key: 'high', label: 'Higher (8, 9, 10)' },
+  ];
+  const counts = groups.map(({ key, label }) => {
+    const rows = usable.filter((u) => u.signal_group === key);
+    return `${label}: ${rows.length} units, ${story1Distinct(rows, 'event_id')} events, ${story1Distinct(rows, 'station_id')} stations`;
+  });
+  note.textContent = `${counts.join(' · ')}. Excluded units (missing median or below the 75% completeness rule): ${all.length - usable.length} of ${all.length}. Missing values are not treated as zero.`;
+  if (!usable.length) {
+    story1Placeholder(el, `No retained ${pollutant} units.`);
+    return;
+  }
+  const traces = groups.map(({ key, label }) => {
+    const rows = usable.filter((u) => u.signal_group === key);
+    return {
+      type: 'box',
+      name: label,
+      x: rows.map(() => label),
+      y: rows.map((u) => story1Number(u.median)),
+      text: rows.map((u) => `${u.event_id} · ${u.station_id}`),
+      boxpoints: 'all',
+      jitter: 0.4,
+      pointpos: 0,
+      marker: { color: STORY1_COLORS[key], size: 5 },
+      line: { color: STORY1_COLORS[key] },
+      hovertemplate: '%{text}<br>Median: %{y} µg/m³<extra></extra>',
+    };
+  });
+  Plotly.newPlot(el, traces, {
+    title: `${pollutant}: event–station medians by signal group`,
+    yaxis: { title: 'Median concentration (µg/m³)' },
+    showlegend: false,
+    margin: { t: 50, r: 20, b: 40, l: 60 },
+  }, { responsive: true });
+}
+
+function renderStory1Paired(data, pollutant) {
+  const el = document.getElementById('story1-paired-chart');
+  const note = document.getElementById('story1-paired-note');
+  const pairs = data.pairs
+    .filter((p) => p.pollutant === pollutant && story1Number(p.diff_high_minus_low) !== null)
+    .map((p) => ({ event_id: p.event_id, station_id: p.station_id, diff: story1Number(p.diff_high_minus_low) }));
+  note.textContent = `${pairs.length} pairs · ${story1Distinct(pairs, 'event_id')} events · ${story1Distinct(pairs, 'station_id')} stations. Each pair comes from the same event, station and pollutant. Pairs are not independent across hours or stations, and the differences are descriptive associations, not causal effects.`;
+  if (!pairs.length) {
+    story1Placeholder(el, `No paired ${pollutant} comparisons.`);
+    return;
+  }
+  Plotly.newPlot(el, [{
+    type: 'box',
+    x: pairs.map(() => 'Higher − lower'),
+    y: pairs.map((p) => p.diff),
+    text: pairs.map((p) => `${p.event_id} · ${p.station_id}`),
+    boxpoints: 'all',
+    jitter: 0.4,
+    pointpos: 0,
+    marker: { color: '#5b4b8a', size: 5 },
+    hovertemplate: '%{text}<br>Difference: %{y} µg/m³<extra></extra>',
+  }], {
+    title: `${pollutant}: paired difference (higher-signal median − lower-signal median)`,
+    yaxis: { title: 'Difference, µg/m³ (positive = higher in higher-signal group)' },
+    shapes: [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 0, y1: 0, line: { dash: 'dot', color: '#56607a' } }],
+    showlegend: false,
+    margin: { t: 50, r: 20, b: 40, l: 60 },
+  }, { responsive: true });
+}
+
+function renderStory1Period(data, eventId, pollutant) {
+  const el = document.getElementById('story1-period-chart');
+  const note = document.getElementById('story1-period-note');
+  const event = data.events.find((e) => e.event_id === eventId);
+  const phases = [
+    { label: 'Before (24 h)', color: STORY1_COLORS.neutral, rows: data.periods.filter((r) => r.event_id === eventId && r.pollutant === pollutant && r.window_hours === '24' && r.side === 'before') },
+    { label: 'During: lower (1, 3)', color: STORY1_COLORS.low, rows: data.units.filter((r) => r.event_id === eventId && r.pollutant === pollutant && r.signal_group === 'low') },
+    { label: 'During: higher (8, 9, 10)', color: STORY1_COLORS.high, rows: data.units.filter((r) => r.event_id === eventId && r.pollutant === pollutant && r.signal_group === 'high') },
+    { label: 'After (24 h)', color: STORY1_COLORS.neutral, rows: data.periods.filter((r) => r.event_id === eventId && r.pollutant === pollutant && r.window_hours === '24' && r.side === 'after') },
+  ].map((ph) => ({
+    ...ph,
+    values: ph.rows
+      .filter((r) => r.retained_75 === 'True' && story1Number(r.median) !== null)
+      .map((r) => ({ value: story1Number(r.median), station: r.station_id })),
+  }));
+  const traces = phases.filter((ph) => ph.values.length).map((ph) => {
+    const label = `${ph.label} (n=${ph.values.length})`;
+    return {
+      type: 'box',
+      name: label,
+      x: ph.values.map(() => label),
+      y: ph.values.map((v) => v.value),
+      text: ph.values.map((v) => v.station),
+      boxpoints: 'all',
+      jitter: 0.4,
+      pointpos: 0,
+      marker: { color: ph.color, size: 5 },
+      line: { color: ph.color },
+      hovertemplate: '%{text}<br>Median: %{y} µg/m³<extra></extra>',
+    };
+  });
+  const higherText = event && event.has_high === 'True'
+    ? 'This event has Signal 8, 9 or 10 intervals in the HKO records.'
+    : 'This event has no Signal 8, 9 or 10 interval in the HKO records, so the higher-signal box is absent (no data, not zero).';
+  note.textContent = `${phases.map((ph) => `${ph.label}: ${ph.values.length} stations`).join(' · ')}. ${higherText} Each point is one station's median. During-signal values use pure hourly bins only; transition hours are excluded. Missing or non-retained values are not plotted and are not treated as zero.`;
+  if (!traces.length) {
+    story1Placeholder(el, `No retained ${pollutant} values for ${eventId}.`);
+    return;
+  }
+  Plotly.newPlot(el, traces, {
+    title: `${eventId}${event ? ` ${event.storm_name}` : ''}: ${pollutant} before, during and after`,
+    yaxis: { title: 'Median concentration (µg/m³)' },
+    showlegend: false,
+    margin: { t: 50, r: 20, b: 40, l: 60 },
+  }, { responsive: true });
+}
+
+function renderStory1Windows(data, eventId) {
+  const tableEl = document.getElementById('story1-window-table');
+  const note = document.getElementById('story1-window-note');
+  const windows = data.windows.filter((w) => w.window_hours === '24');
+  const own = windows.filter((w) => w.event_id === eventId);
+  tableEl.textContent = '';
+  if (own.length) {
+    tableEl.appendChild(story1Table(
+      ['Side', 'Window start', 'Window end', 'Free hours', 'Shared hours', 'Warning-contaminated hours', 'Status'],
+      own.map((w) => [w.side, w.window_start, w.window_end, w.free_bins, w.shared_bins, w.warning_contaminated_bins, w.status]),
+    ));
+  } else {
+    tableEl.textContent = 'No 24 h window records for this event.';
+  }
+  const count = (status) => windows.filter((w) => w.status === status).length;
+  const notFull = windows.filter((w) => w.status !== 'full').map((w) => `${w.event_id} ${w.side} (${w.status})`);
+  note.textContent = `All 24 h windows: full ${count('full')}, reduced ${count('reduced')}, excluded ${count('excluded')}. Not-full windows: ${notFull.join('; ') || 'none'}. A window needs at least 12 free hours; free hours exclude warning-contaminated and shared hours. Excluded windows are listed rather than removed silently.`;
+}
+
+function renderStory1Sensitivity(data) {
+  const el = document.getElementById('story1-sensitivity-table');
+  el.textContent = '';
+  if (!data.sensitivity.length) {
+    el.textContent = 'Sensitivity summary not found.';
+    return;
+  }
+  const rows = data.sensitivity.map((r) => {
+    let label = STORY1_ROLE_LABELS[r.role] ?? r.role;
+    if (r.role === 'timing_sensitivity') {
+      const shift = Number(r.shift_hours);
+      label = `${label}, shift ${shift > 0 ? '+' : ''}${shift} h`;
+    }
+    const total = story1Number(r.windows_total);
+    const full = story1Number(r.windows_full);
+    const reduced = story1Number(r.windows_reduced);
+    const excluded = story1Number(r.windows_excluded);
+    return [
+      label,
+      `${r.window_hours} h`,
+      r.full_windows_only === 'True' ? 'Yes' : 'No',
+      r.eligible_events,
+      r.units_total,
+      r.units_retained_75,
+      r.paired_triples_75,
+      r.paired_events_75,
+      r.paired_stations_75,
+      `${full} / ${reduced} / ${excluded} (total ${total})`,
+      full + reduced + excluded === total ? 'Yes' : 'No: check',
+    ];
+  });
+  el.appendChild(story1Table(
+    ['Analysis', 'Window', 'Full windows only', 'Eligible events', 'Units total', 'Units retained (75%)', 'Paired triples', 'Paired events', 'Paired stations', 'Windows full / reduced / excluded', 'Status counts sum to total'],
+    rows,
+  ));
+}
+
+function renderStory1Assumptions(data) {
+  const el = document.getElementById('story1-assumptions');
+  el.textContent = '';
+  const assumptions = data.validation && data.validation.assumptions;
+  if (!assumptions) {
+    el.textContent = 'Validation summary not found; assumption text unavailable.';
+    return;
+  }
+  const list = document.createElement('ul');
+  Object.entries(assumptions).forEach(([key, value]) => {
+    const li = document.createElement('li');
+    li.textContent = `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`;
+    list.appendChild(li);
+  });
+  el.appendChild(list);
+}
+
+function setupStory1Controls(data) {
+  const pollutantSelect = document.getElementById('story1-pollutant');
+  const eventSelect = document.getElementById('story1-event');
+  const pollutants = STORY1_POLLUTANT_ORDER.filter((p) => data.units.some((u) => u.pollutant === p));
+  pollutants.forEach((p) => pollutantSelect.add(new Option(p, p)));
+  data.events.forEach((e) => eventSelect.add(new Option(`${e.event_id} · ${e.storm_name}`, e.event_id)));
+  if (pollutants.includes('NO2')) pollutantSelect.value = 'NO2';
+  // E20 is Super Typhoon Doksuri (Signal 1 only), used as the default event.
+  eventSelect.value = data.events.some((e) => e.event_id === 'E20') ? 'E20' : (data.events[0]?.event_id ?? '');
+  pollutantSelect.addEventListener('change', () => renderStory1Inline(data));
+  eventSelect.addEventListener('change', () => renderStory1Inline(data));
+}
+
+function renderStory1Inline(data) {
+  if (!data.units.length) {
+    ['story1-group-chart', 'story1-paired-chart', 'story1-period-chart'].forEach((id) => {
+      story1Placeholder(document.getElementById(id), 'Story 1 analysis outputs not found. Run scripts/story1_analysis.py.');
+    });
+    return;
+  }
+  const pollutant = document.getElementById('story1-pollutant').value;
+  const eventId = document.getElementById('story1-event').value;
+  renderStory1Groups(data, pollutant);
+  renderStory1Paired(data, pollutant);
+  renderStory1Period(data, eventId, pollutant);
+  renderStory1Windows(data, eventId);
+}
+
+async function renderStory1() {
+  const data = await loadStory1();
+  renderStory1Timeline(data);
+  if (!story1ControlsReady) {
+    setupStory1Controls(data);
+    renderStory1Sensitivity(data);
+    renderStory1Assumptions(data);
+    story1ControlsReady = true;
+  }
+  renderStory1Inline(data);
+  setStatus(data.units.length
+    ? `Story 1: ${data.events.length} events · ${data.segments.length} warning-signal intervals · timestamps as recorded in the HKO workbook (HKT assumed, unverified).`
+    : 'Story 1: analysis outputs not found in output/analysis/story1/.');
 }
 
 async function renderStory2() {
@@ -301,11 +620,12 @@ function activateStep(step) {
   document.querySelectorAll('.step').forEach((el) => el.classList.remove('is-active'));
   step.classList.add('is-active');
   const story = step.dataset.story;
-  // Story 4 has no verified station coordinates, so the map is hidden to give the charts more room.
+  // Stories 1 and 4 have no verified station coordinates, so the map is hidden to give the charts more room.
+  const isStory1 = story === 'story1';
   const isStory4 = story === 'story4';
-  mapEl.hidden = isStory4;
-  chartEl.classList.toggle('chart--tall', isStory4);
-  if (!isStory4 && map) map.invalidateSize();
+  mapEl.hidden = isStory1 || isStory4;
+  chartEl.classList.toggle('chart--tall', isStory1 || isStory4);
+  if (!mapEl.hidden && map) map.invalidateSize();
   if (story === 'story1') return renderStory1();
   if (story === 'story2') return renderStory2();
   if (story === 'story3') return renderStory3();
@@ -315,13 +635,19 @@ function activateStep(step) {
 }
 
 function initObserver() {
-  const observer = new IntersectionObserver((entries) => {
+  const onIntersect = (entries) => {
     entries.forEach((entry) => {
       if (entry.isIntersecting) activateStep(entry.target);
     });
-  }, { threshold: 0.45 });
+  };
+  const observer = new IntersectionObserver(onIntersect, { threshold: 0.45 });
+  // A 45% visibility threshold can never be met by Story 1 at laptop heights (the step is taller than the viewport),
+  // so Story 1 activates when it crosses a band across the middle of the viewport instead.
+  const story1Observer = new IntersectionObserver(onIntersect, { threshold: 0, rootMargin: '-45% 0px -45% 0px' });
 
-  document.querySelectorAll('.step').forEach((step) => observer.observe(step));
+  document.querySelectorAll('.step').forEach((step) => {
+    (step.dataset.story === 'story1' ? story1Observer : observer).observe(step);
+  });
 }
 
 window.addEventListener('DOMContentLoaded', () => {

@@ -30,11 +30,75 @@
         </article>
 
         <article class="step" data-story="story1">
-          <h2>Story 1 — Tropical Cyclones and Extreme Haze</h2>
-          <p>
-            Focus window: 24–29 July 2023 (Super Typhoon Doksuri). Hourly NO2, O3, RSP, and FSP are shown where available.
+          <h2>Story 1 — Tropical Cyclone Warning Signals and Air Quality</h2>
+          <p class="story-question">
+            How does Hong Kong's air quality vary during different tropical cyclone warning-signal periods, and do the patterns differ across monitoring stations?
           </p>
-          <p class="note">Temporal coincidence is not interpreted as causation.</p>
+          <p>
+            A tropical cyclone warning signal is an alert issued by the Hong Kong Observatory (HKO) when a tropical cyclone threatens Hong Kong.
+            This story groups Signals 1 and 3 as <strong>lower signals</strong>, and Signals 8, 9 and 10 as <strong>higher signals</strong>.
+            It compares hourly readings from 18 monitoring stations (2020–2025) for four pollutants:
+            NO<sub>2</sub> (nitrogen dioxide), O<sub>3</sub> (ozone), RSP (respirable suspended particulates) and FSP (fine suspended particulates). All concentrations are in µg/m³.
+          </p>
+          <p class="note">Observational data only. Patterns are associations and do not show that cyclones caused any change in pollution.</p>
+
+          <h3>1. Warning-signal timeline</h3>
+          <p>
+            The panel on the right shows each HKO warning-signal interval, grouped into 44 events. Labels and timestamps are kept as recorded in the HKO workbook.
+            <strong>Super Typhoon Doksuri (E20)</strong> had Signal 1 only (26 July 2023 20:40 to 28 July 2023 12:40), so it cannot be used as a lower-versus-higher comparison.
+          </p>
+
+          <h3>2. Lower versus higher signals</h3>
+          <p>
+            A <em>median</em> is the middle value of a station's hourly readings. Each box below summarises one median per event and station,
+            using only units that meet the 75% completeness rule (at least 75% of eligible hours have valid values).
+          </p>
+          <div class="station-picker">
+            <label for="story1-pollutant">Pollutant:</label>
+            <select id="story1-pollutant" aria-label="Story 1 pollutant"></select>
+          </div>
+          <div id="story1-group-chart" class="story1-chart"></div>
+          <p class="note" id="story1-group-note"></p>
+
+          <h3>3. Paired comparison within events</h3>
+          <p>
+            A <em>pair</em> compares the higher-signal median with the lower-signal median for the same event, station and pollutant.
+            Positive values mean the higher-signal median was greater. Pairs are not independent across stations or hours.
+          </p>
+          <div id="story1-paired-chart" class="story1-chart"></div>
+          <p class="note" id="story1-paired-note"></p>
+
+          <h3>4. Before, during and after one event</h3>
+          <p>
+            The before and after windows are 24 hours long and sit next to the signal period. Each window needs at least 12 free hours,
+            meaning hours that are not inside a warning-signal interval or shared with another window.
+            During-signal boxes use pure hourly bins only, so transition hours are excluded.
+          </p>
+          <div class="station-picker">
+            <label for="story1-event">Event:</label>
+            <select id="story1-event" aria-label="Story 1 event"></select>
+          </div>
+          <div id="story1-period-chart" class="story1-chart"></div>
+          <p class="note" id="story1-period-note"></p>
+          <h4>Window status</h4>
+          <div id="story1-window-table" class="story1-scroll"></div>
+          <p class="note" id="story1-window-note"></p>
+
+          <h3>5. Sensitivity and limitations</h3>
+          <p>
+            The <strong>primary result</strong> is the 24-hour analysis. For 48 hours, the <strong>full-window-only comparison</strong> is the main sensitivity check.
+            The all-events 48-hour row is <strong>transparency only</strong> and is not the main sensitivity result.
+          </p>
+          <div id="story1-sensitivity-table" class="story1-scroll"></div>
+          <h4>Assumptions</h4>
+          <div id="story1-assumptions"></div>
+          <h4>Limitations</h4>
+          <ul class="story1-limits">
+            <li>Signal 9 and Signal 10 samples are very small. Treat any result that depends on them as descriptive only.</li>
+            <li>Results are descriptive associations. They do not establish that tropical cyclones caused any change in air quality.</li>
+            <li>The EPD hourly convention and the HKT timezone are unverified working assumptions. The EPD enquiry has been deferred.</li>
+            <li>No station map is shown because station coordinates have not been verified.</li>
+          </ul>
         </article>
 
         <article class="step" data-story="story2">
