@@ -53,13 +53,40 @@
 
         <article class="step" data-story="story4">
           <h2>Story 4 — Daily Maximum AQHI Categories</h2>
-          <p>
-            Monthly counts show daily maximum AQHI categories by monitoring station. This is not hourly AQHI duration.
+          <p class="story-question">
+            How does the distribution of daily maximum AQHI categories vary across Hong Kong monitoring stations,
+            and how frequently do higher categories occur?
           </p>
-          <label for="aqhi-station-filter">Station:</label>
-          <select id="aqhi-station-filter" aria-label="AQHI station"></select>
+          <p>
+            The Air Quality Health Index (AQHI) is a health-risk indicator related to air pollution.
+            These charts count how many days each month had a given <strong>daily maximum</strong> AQHI category at a monitoring station.
+            They are counts of days, not hourly duration and not the number of people affected.
+            Change the station to explore spatial differences.
+          </p>
+          <div class="station-picker">
+            <label for="aqhi-station-filter">Station:</label>
+            <select id="aqhi-station-filter" aria-label="AQHI station"></select>
+          </div>
+          <div class="finding" id="aqhi-observation" aria-live="polite">
+            <p class="finding-label">Key finding: days in category 7 or above (including 10+)</p>
+            <p class="finding-number" id="aqhi-finding-number"></p>
+            <p id="aqhi-finding-text"></p>
+            <p class="note" id="aqhi-finding-context"></p>
+          </div>
+          <h3>Chart A — Categories 1–5</h3>
+          <p>
+            The upper chart shows how often each lower daily maximum category occurred in each month.
+            Lower categories do not mean there are no health effects.
+          </p>
+          <h3>Chart B — Categories 6–10 and 10+</h3>
+          <p>
+            The lower chart shows how often higher daily maximum categories occurred.
+            <code>10+</code> is its own category and is never treated as the number 10.
+          </p>
           <p class="note">
-            Starred readings are shown separately. 10+ remains a high category, and South/North District are unavailable before June 2020.
+            Starred readings, if present, are drawn hatched. Missing, unresolved and unknown records are not plotted as AQHI categories.
+            South District (南區) and North District (北區) are shown as not available before June 2020, not as zero.
+            Station coverage varies, and these descriptive counts do not explain what caused the patterns.
           </p>
         </article>
       </section>

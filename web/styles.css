@@ -64,7 +64,23 @@ body {
 }
 
 .chart { height: 55vh; }
+.chart.chart--tall { height: 86vh; min-height: 680px; }
 .map { height: 30vh; border: 1px solid #dce3f7; border-radius: 8px; }
+.map[hidden] { display: none; }
+
+.story-question { font-weight: 600; }
+.station-picker { margin: 0.6rem 0; }
+.station-picker select { font-size: 1rem; padding: 0.2rem 0.4rem; }
+.finding {
+  background: #eef3ff;
+  border-left: 4px solid var(--accent);
+  padding: 0.5rem 0.9rem;
+  border-radius: 4px;
+  margin: 0.8rem 0;
+}
+.finding p { margin: 0.25rem 0; }
+.finding-label { font-size: 0.85rem; color: var(--muted); }
+.finding-number { font-size: 1.8rem; font-weight: 700; color: var(--accent); }
 
 @media (max-width: 900px) {
   .scrolly-layout { grid-template-columns: 1fr; }

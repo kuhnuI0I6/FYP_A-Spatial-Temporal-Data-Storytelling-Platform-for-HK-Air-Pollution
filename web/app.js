@@ -149,28 +149,125 @@ async function renderStory4() {
   const selected = filter?.value || stations[0];
   const selectedRows = data.filter((row) => row.station_raw === selected);
   const months = [...new Set(data.map((row) => row.source_month))].sort();
-  const categories = [...Array(10)].map((_, index) => String(index + 1)).concat('10+');
+  const monthLabels = months.map((month) => `${month.slice(0, 4)}-${month.slice(4, 6)}`);
+  // Show only the year on the axis; hover text keeps the exact month (YYYY-MM).
+  const tickIndexes = months.map((month, i) => (month.endsWith('01') ? i : -1)).filter((i) => i >= 0);
+  const tickvals = tickIndexes.map((i) => monthLabels[i]);
+  const ticktext = tickIndexes.map((i) => months[i].slice(0, 4));
+  const colours = {
+    '1': '#1a9850', '2': '#66bd63', '3': '#a6d96a', '4': '#fee08b', '5': '#fdae61',
+    '6': '#f46d43', '7': '#d73027', '8': '#a50026', '9': '#7b3294', '10': '#40004b', '10+': '#000000',
+  };
+  const axisBase = { type: 'category', tickmode: 'array', tickvals, ticktext, showgrid: false, tickfont: { size: 12 } };
+  const yBase = { title: { text: 'Days (daily maximum)', font: { size: 12 } }, rangemode: 'tozero', gridcolor: '#eef1f6', zeroline: false };
+  // Chart A uses the x/y axes (top); Chart B uses x2/y2 (bottom).
+  const views = [
+    { categories: ['1', '2', '3', '4', '5'], xaxis: 'x', yaxis: 'y', legend: 'legend' },
+    { categories: ['6', '7', '8', '9', '10', '10+'], xaxis: 'x2', yaxis: 'y2', legend: 'legend2' },
+  ];
   const traces = [];
-  ['unstarred', 'starred'].forEach((starStatus) => {
-    categories.forEach((category) => {
-      traces.push({
-        x: months,
-        y: months.map((month) => {
+  const viewHasData = views.map(() => false);
+  views.forEach((view, viewIndex) => {
+    ['unstarred', 'starred'].forEach((starStatus) => {
+      view.categories.forEach((category) => {
+        const counts = months.map((month) => {
           const row = selectedRows.find((item) =>
             item.source_month === month &&
             item.category === category &&
             item.star_status === starStatus
           );
           return row ? Number(row.category_count) : null;
-        }),
-        type: 'bar',
-        name: `${category}${starStatus === 'starred' ? ' *' : ''}`,
-        legendgroup: starStatus,
-        visible: true,
-        hovertemplate: `${selected} — ${category}${starStatus === 'starred' ? ' (starred)' : ''}<br>%{x}: %{y}<extra></extra>`,
+        });
+        const hasCounts = counts.some((count) => count !== null);
+        if (hasCounts) viewHasData[viewIndex] = true;
+        const isStarred = starStatus === 'starred';
+        traces.push({
+          x: monthLabels,
+          y: counts,
+          type: 'bar',
+          xaxis: view.xaxis,
+          yaxis: view.yaxis,
+          legend: view.legend,
+          name: isStarred ? `${category} (starred)` : category,
+          legendgroup: category,
+          showlegend: !isStarred || hasCounts,
+          marker: {
+            color: colours[category],
+            pattern: { shape: isStarred ? '/' : '' },
+          },
+          hovertemplate: `Station: ${selected}<br>Month: %{x}<br>${isStarred ? 'Starred category' : 'Category'}: ${category}<br>Days: %{y}<extra></extra>`,
+        });
       });
     });
   });
+  const emptyAnnotations = views.map((view, viewIndex) => viewHasData[viewIndex] ? null : {
+    text: `No valid AQHI daily maximum observations in this view for ${selected}.`,
+    xref: `${view.xaxis} domain`,
+    yref: `${view.yaxis} domain`,
+    x: 0.5,
+    y: 0.5,
+    showarrow: false,
+  }).filter(Boolean);
+  const unavailableUntil = months.indexOf('202006');
+  const isPartlyUnavailable = ['南區', '北區'].includes(selected) && unavailableUntil > 0;
+  const unavailableShapes = [];
+  const unavailableAnnotations = [];
+  if (isPartlyUnavailable) {
+    views.forEach((view) => {
+      unavailableShapes.push({
+        type: 'rect', xref: view.xaxis, yref: `${view.yaxis} domain`,
+        x0: -0.5, x1: unavailableUntil - 0.5, y0: 0, y1: 1,
+        fillcolor: '#cfd4de', opacity: 0.45, line: { width: 0 }, layer: 'below',
+      });
+      unavailableAnnotations.push({
+        text: 'Not available<br>before June 2020',
+        xref: view.xaxis, yref: `${view.yaxis} domain`,
+        x: (unavailableUntil - 1) / 2, y: 0.5, showarrow: false,
+        font: { size: 11, color: '#3b4252' },
+      });
+    });
+  }
+
+  // Share of valid daily maxima in category 7 or above (a summary threshold chosen here, not an official band).
+  const isValidCategory = (row) => row.category === '10+' || /^(?:[1-9]|10)$/.test(row.category);
+  const isHigher = (row) => row.category === '10+' || ['7', '8', '9', '10'].includes(row.category);
+  const shareByStation = stations.map((station) => {
+    const rows = data.filter((row) => row.station_raw === station && isValidCategory(row));
+    const valid = rows.reduce((sum, row) => sum + Number(row.category_count), 0);
+    const higher = rows.filter(isHigher).reduce((sum, row) => sum + Number(row.category_count), 0);
+    return { station, valid, higher, share: valid ? higher / valid : null };
+  }).filter((item) => item.share !== null).sort((a, b) => b.share - a.share);
+  const observationEl = document.getElementById('aqhi-observation');
+  if (observationEl) {
+    const current = shareByStation.find((item) => item.station === selected);
+    const numberEl = document.getElementById('aqhi-finding-number');
+    const textEl = document.getElementById('aqhi-finding-text');
+    const contextEl = document.getElementById('aqhi-finding-context');
+    if (current) {
+      const pct = (item) => `${(item.share * 100).toFixed(1)}%`;
+      const validMonths = selectedRows.filter(isValidCategory).map((row) => row.source_month).sort();
+      const fmt = (month) => `${month.slice(0, 4)}-${month.slice(4, 6)}`;
+      const period = `${fmt(validMonths[0])} to ${fmt(validMonths[validMonths.length - 1])}`;
+      const top = shareByStation[0];
+      const bottom = shareByStation[shareByStation.length - 1];
+      numberEl.textContent = `${current.higher} days · ${pct(current)}`;
+      textEl.textContent =
+        `${selected}, ${period}: ${current.higher} of ${current.valid} valid daily maximum AQHI records ` +
+        `(${pct(current)}) were in category 7 or above, including 10+. ` +
+        'Percentages use each station\'s own valid records, so they are shares of days with a valid category, not hours.';
+      const excluded = selectedRows
+        .filter((row) => ['missing', 'unresolved', 'unknown'].includes(row.category))
+        .reduce((sum, row) => sum + Number(row.category_count), 0);
+      contextEl.textContent =
+        `Across stations this share ranges from ${pct(bottom)} (${bottom.station}) to ${pct(top)} (${top.station}). ` +
+        `${excluded} missing, unresolved or unknown record(s) for ${selected} are excluded. ` +
+        'Station coverage differs, and this does not show whether AQHI improved or worsened.';
+    } else {
+      numberEl.textContent = 'No valid records';
+      textEl.textContent = `${selected} has no valid daily maximum AQHI records in this dataset.`;
+      contextEl.textContent = '';
+    }
+  }
   const qualityRows = selectedRows.filter((row) =>
     ['missing', 'unresolved', 'unknown'].includes(row.category)
   );
@@ -181,11 +278,22 @@ async function renderStory4() {
   if (filter) filter.onchange = () => renderStory4();
   setStatus(`Story 4: ${selected}; daily maximum categories. Quality-marked/missing records: ${qualityCount}. Unavailable pre-June 2020 months: ${unavailable}.`);
   Plotly.newPlot(chartEl, traces, {
-    title: `Monthly daily maximum AQHI categories — ${selected}`,
-    barmode: 'group',
-    xaxis: { title: 'Month' },
-    yaxis: { title: 'Daily maximum observation count' },
-    legend: { orientation: 'h' },
+    barmode: 'stack',
+    bargap: 0.1,
+    xaxis: { ...axisBase, anchor: 'y', domain: [0, 1] },
+    yaxis: { ...yBase, domain: [0.55, 0.88] },
+    xaxis2: { ...axisBase, anchor: 'y2', domain: [0, 1], title: { text: 'Year (hover a bar for the exact month)', font: { size: 12 } } },
+    yaxis2: { ...yBase, domain: [0, 0.36] },
+    legend: { orientation: 'h', x: 0, xanchor: 'left', y: 0.89, yanchor: 'bottom', font: { size: 11 } },
+    legend2: { orientation: 'h', x: 0, xanchor: 'left', y: 0.37, yanchor: 'bottom', font: { size: 11 } },
+    margin: { t: 8, r: 10, b: 60, l: 62 },
+    shapes: unavailableShapes,
+    annotations: [
+      { text: `<b>Chart A — Categories 1–5</b> · ${selected}`, xref: 'paper', yref: 'paper', x: 0, y: 1, yanchor: 'top', xanchor: 'left', showarrow: false, font: { size: 13 } },
+      { text: `<b>Chart B — Categories 6–10 and 10+</b> · ${selected}`, xref: 'paper', yref: 'paper', x: 0, y: 0.46, yanchor: 'top', xanchor: 'left', showarrow: false, font: { size: 13 } },
+      ...unavailableAnnotations,
+      ...emptyAnnotations,
+    ],
   }, { responsive: true });
 }
 
@@ -193,6 +301,11 @@ function activateStep(step) {
   document.querySelectorAll('.step').forEach((el) => el.classList.remove('is-active'));
   step.classList.add('is-active');
   const story = step.dataset.story;
+  // Story 4 has no verified station coordinates, so the map is hidden to give the charts more room.
+  const isStory4 = story === 'story4';
+  mapEl.hidden = isStory4;
+  chartEl.classList.toggle('chart--tall', isStory4);
+  if (!isStory4 && map) map.invalidateSize();
   if (story === 'story1') return renderStory1();
   if (story === 'story2') return renderStory2();
   if (story === 'story3') return renderStory3();
