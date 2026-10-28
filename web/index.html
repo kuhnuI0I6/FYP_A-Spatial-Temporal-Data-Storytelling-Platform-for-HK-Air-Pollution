@@ -180,11 +180,142 @@
           <div id="story2-inline-limits" class="story2-inline"></div>
         </article>
 
-        <article class="step" data-story="story3">
-          <h2>Story 3 — Seasonal Air Quality in Hong Kong</h2>
+        <article class="step" data-story="story3" data-view="annual">
+          <p class="story3-stage">Story 3 · Stage 1 of 5</p>
+          <h2>How do annual pollutant levels compare from 2020 to 2025?</h2>
           <p>
-            Daily, monthly, and seasonal summaries compare pollutants by year and season with valid-observation counts.
+            This story uses monthly summaries from the existing dataset for 2020–2025. Each pollutant is shown on its own: NO₂, O₃, RSP and FSP are never averaged together.
+            Each point pools station-months by valid-observation count, so months with more valid readings carry more weight.
           </p>
+          <p>
+            The solid line uses every station with data. The dotted line uses a <strong>balanced 16-station sensitivity</strong>: only stations with all 72 months for every pollutant.
+            The two lines show how much the station set changes the level. They are not two different measurements.
+          </p>
+          <div class="station-picker">
+            <label for="story3-pollutant-annual">Pollutant:</label>
+            <select id="story3-pollutant-annual" class="story3-pollutant" aria-label="Story 3 pollutant">
+              <option value="NO2" selected>NO2</option>
+              <option value="O3">O3</option>
+              <option value="RSP">RSP</option>
+              <option value="FSP">FSP</option>
+            </select>
+          </div>
+          <div id="story3-inline-annual" class="story3-inline"></div>
+          <p class="note" id="story3-annual-note"></p>
+          <div class="finding story3-takeaway">
+            <p class="finding-label">Key takeaway</p>
+            <p id="story3-annual-takeaway"></p>
+          </div>
+          <p class="story3-bridge">Next: which months within each year are highest, as a heatmap.</p>
+        </article>
+
+        <article class="step" data-story="story3" data-view="monthly">
+          <p class="story3-stage">Story 3 · Stage 2 of 5</p>
+          <h2>Which months are highest, and do they repeat across years?</h2>
+          <p>
+            Each heatmap cell is one calendar month in one year, pooled across stations by valid-observation count. The bars on the right are the all-years average for each month.
+            The question is simple: does the same month tend to come out highest, or lowest, year after year? A cell marked † includes at least one station-month below the project's <strong>75% completeness</strong> threshold. Those values are kept and marked, not removed.
+          </p>
+          <div class="station-picker">
+            <label for="story3-pollutant-monthly">Pollutant:</label>
+            <select id="story3-pollutant-monthly" class="story3-pollutant" aria-label="Story 3 pollutant (monthly)">
+              <option value="NO2" selected>NO2</option>
+              <option value="O3">O3</option>
+              <option value="RSP">RSP</option>
+              <option value="FSP">FSP</option>
+            </select>
+          </div>
+          <div id="story3-inline-monthly" class="story3-inline"></div>
+          <p class="note" id="story3-monthly-note"></p>
+          <div class="finding story3-takeaway">
+            <p class="finding-label">Key takeaway</p>
+            <p id="story3-monthly-takeaway"></p>
+          </div>
+          <p class="story3-bridge">Next: the same data grouped into seasons, with winter defined across the year boundary.</p>
+        </article>
+
+        <article class="step" data-story="story3" data-view="seasonal">
+          <p class="story3-stage">Story 3 · Stage 3 of 5</p>
+          <h2>How much higher is winter than summer, year by year?</h2>
+          <p>
+            Each row of the chart is one year. The <strong>blue dot is winter</strong>, the <strong>orange diamond is summer</strong>, and the line between them is the winter-minus-summer difference.
+            Spring and autumn appear as muted grey context. <strong>Winter for year Y</strong> is December of the previous year plus January and February of Y, so each winter is one season, not split across two years.
+          </p>
+          <p class="note">A season is compared only when all three of its months are present <em>and</em> valid observations cover at least 75% of the expected hours. Winter 2020 has only January and February 2020, and winter 2026 has only December 2025; these boundary winters are shown separately and are not used in the comparison.</p>
+          <div class="station-picker">
+            <label for="story3-pollutant-seasonal">Pollutant:</label>
+            <select id="story3-pollutant-seasonal" class="story3-pollutant" aria-label="Story 3 pollutant (seasonal)">
+              <option value="NO2" selected>NO2</option>
+              <option value="O3">O3</option>
+              <option value="RSP">RSP</option>
+              <option value="FSP">FSP</option>
+            </select>
+          </div>
+          <div id="story3-inline-seasonal" class="story3-inline"></div>
+          <p class="note" id="story3-seasonal-note"></p>
+          <div class="finding story3-takeaway">
+            <p class="finding-label">Key takeaway</p>
+            <p id="story3-seasonal-takeaway"></p>
+          </div>
+          <p class="story3-bridge">Next: the same pollutant, station by station.</p>
+        </article>
+
+        <article class="step" data-story="story3" data-view="stations">
+          <p class="story3-stage">Story 3 · Stage 4 of 5</p>
+          <h2>Is the winter–summer gap the same at every station?</h2>
+          <p>
+            Every station is listed, with its winter and summer means over the <strong>same comparable years</strong>, so stations are compared like for like.
+            Stations are sorted by winter minus summer. A hollow marker (†) is an incomplete record, with missing months or under 75% of expected hours. It is kept and flagged, not removed.
+          </p>
+          <div class="station-picker">
+            <label for="story3-pollutant-stations">Pollutant:</label>
+            <select id="story3-pollutant-stations" class="story3-pollutant" aria-label="Story 3 pollutant (stations)">
+              <option value="NO2" selected>NO2</option>
+              <option value="O3">O3</option>
+              <option value="RSP">RSP</option>
+              <option value="FSP">FSP</option>
+            </select>
+            <label for="story3-station">Highlight station:</label>
+            <select id="story3-station" aria-label="Highlight a station">
+              <option value="" selected>None</option>
+            </select>
+          </div>
+          <p class="note" id="story3-stations-selected"></p>
+          <div id="story3-inline-stations" class="story3-inline"></div>
+          <p class="note" id="story3-stations-note"></p>
+          <div class="finding story3-takeaway">
+            <p class="finding-label">Key takeaway</p>
+            <p id="story3-stations-takeaway"></p>
+          </div>
+          <details class="story2-details">
+            <summary>Station details table</summary>
+            <div class="story3-scroll" id="story3-stations-table"></div>
+          </details>
+          <p class="story3-bridge">Last: what the evidence supports, and what it cannot show.</p>
+        </article>
+
+        <article class="step" data-story="story3" data-view="limits">
+          <p class="story3-stage">Story 3 · Stage 5 of 5</p>
+          <h2>What does the evidence support, and what are its limits?</h2>
+          <div class="station-picker">
+            <label for="story3-pollutant-limits">Pollutant:</label>
+            <select id="story3-pollutant-limits" class="story3-pollutant" aria-label="Story 3 pollutant (evidence)">
+              <option value="NO2" selected>NO2</option>
+              <option value="O3">O3</option>
+              <option value="RSP">RSP</option>
+              <option value="FSP">FSP</option>
+            </select>
+          </div>
+          <p class="note">The findings and coverage figures for the selected pollutant are in the panel. They are calculated from output/analysis/story3_monthly_summary.csv.</p>
+          <h3>Limitations</h3>
+          <ul class="story3-limits">
+            <li>Pollutants are shown one at a time and never combined into an index.</li>
+            <li>Units are as recorded in the source file and have not been verified.</li>
+            <li>These are descriptive patterns. Weather, emissions and other factors are not analysed, so no cause is claimed.</li>
+            <li>No significance test or uncertainty range is calculated, and station locations are not used.</li>
+            <li>Incomplete groups are kept and flagged, and boundary winters stay outside the comparison.</li>
+          </ul>
+          <div id="story3-inline-limits" class="story3-inline"></div>
         </article>
 
         <article class="step" data-story="story4">
@@ -231,6 +362,7 @@
         <div id="status" class="status"></div>
         <div id="chart" class="chart"></div>
         <div id="story2-validation" class="story2-validation" hidden></div>
+        <div id="story3-validation" class="story3-validation" hidden></div>
         <div id="map" class="map"></div>
       </section>
     </main>

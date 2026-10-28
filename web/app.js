@@ -906,30 +906,466 @@ async function renderStory2(step) {
 }
 
 
-async function renderStory3() {
-  setStatus('Story 3: Seasonal pollutant averages and supporting counts.');
-  const data = await fetchCsv('../output/analysis/story3_seasonal_summary.csv');
-  if (!data.length) {
-    renderPlaceholder('Story 3 — Seasonal Air Quality', 'No compatible Story 3 dataset found yet.');
+const STORY3_BASE = '../output/analysis/';
+const STORY3_POLLUTANTS = ['NO2', 'O3', 'RSP', 'FSP'];
+const STORY3_COMPLETE = 0.75;
+const STORY3_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const STORY3_SEASONS = ['Winter', 'Spring', 'Summer', 'Autumn'];
+const STORY3_VIEWS = ['annual', 'monthly', 'seasonal', 'stations', 'limits'];
+const STORY3_COLORS = { full: '#08519c', balanced: '#e6550d', winter: '#2b6cb0', summer: '#dd6b20', context: '#a0aec0', ink: '#1a1f2e' };
+let story3Loaded = null;
+let story3Token = 0;
+const story3State = { pollutant: 'NO2', station: '' };
+const story3Drawn = new Map();
+const story3ModelCache = new Map();
+
+function story3Num(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function story3Hours(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate() * 24;
+}
+
+function loadStory3() {
+  if (!story3Loaded) {
+    story3Loaded = fetchCsv(`${STORY3_BASE}story3_monthly_summary.csv`).then((raw) => {
+      const rows = raw.map((r) => {
+        const year = Number(r.year);
+        const month = Number(r.month);
+        const valid = story3Num(r.valid_obs);
+        const expected = story3Hours(year, month);
+        return {
+          year,
+          month,
+          station: r.station_id,
+          pollutant: r.pollutant,
+          mean: story3Num(r.mean_value),
+          valid,
+          expected,
+          coverage: valid === null ? null : valid / expected,
+        };
+      }).filter((r) => r.mean !== null && r.valid !== null && r.valid > 0);
+      const counts = {};
+      rows.forEach((r) => {
+        const k = `${r.station}|${r.pollutant}`;
+        counts[k] = (counts[k] ?? 0) + 1;
+      });
+      const stations = [...new Set(rows.map((r) => r.station))].sort();
+      const balanced = stations.filter((s) => STORY3_POLLUTANTS.every((p) => counts[`${s}|${p}`] === 72));
+      return { rows, stations, balanced };
+    });
+  }
+  return story3Loaded;
+}
+
+// Observation-weighted pooling: sum(mean × valid_obs) / sum(valid_obs). Different pollutants are never pooled.
+function story3Pool(rows) {
+  const valid = rows.reduce((s, r) => s + r.valid, 0);
+  if (!valid) return null;
+  const weighted = rows.reduce((s, r) => s + r.mean * r.valid, 0);
+  return {
+    mean: weighted / valid,
+    valid,
+    groups: rows.length,
+    incomplete: rows.filter((r) => r.coverage !== null && r.coverage < STORY3_COMPLETE).length,
+  };
+}
+
+function story3Season(row) {
+  if (row.month === 12) return { season: 'Winter', year: row.year + 1 };
+  if (row.month <= 2) return { season: 'Winter', year: row.year };
+  if (row.month <= 5) return { season: 'Spring', year: row.year };
+  if (row.month <= 8) return { season: 'Summer', year: row.year };
+  return { season: 'Autumn', year: row.year };
+}
+
+function story3Mobile() {
+  return STORY2_MOBILE.matches;
+}
+
+function story3Fmt(value, digits = 1) {
+  return value === null || value === undefined ? 'n/a' : value.toFixed(digits);
+}
+
+function story3Signed(value, digits = 1) {
+  if (value === null || value === undefined) return 'n/a';
+  const text = Math.abs(value).toFixed(digits);
+  return Number(text) === 0 ? text : `${value < 0 ? '−' : '+'}${text}`;
+}
+
+function story3Pct(value) {
+  return value === null || value === undefined ? 'n/a' : `${story3Signed(value, 1)}%`;
+}
+
+function story3Dir(value, up = 'higher', down = 'lower') {
+  if (value > 0) return up;
+  return value < 0 ? down : 'unchanged';
+}
+
+function story3List(items) {
+  return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+function story3Years(years) {
+  if (!years.length) return 'none';
+  const contiguous = years.every((y, i) => i === 0 || y === years[i - 1] + 1);
+  return contiguous && years.length > 1 ? `${years[0]}–${years[years.length - 1]}` : years.join(', ');
+}
+
+function story3Median(values) {
+  const v = [...values].sort((a, b) => a - b);
+  if (!v.length) return null;
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+}
+
+function story3Ranks(values) {
+  const order = values.map((v, i) => [v, i]).sort((a, b) => a[0] - b[0]);
+  const ranks = new Array(values.length);
+  let i = 0;
+  while (i < order.length) {
+    let j = i;
+    while (j + 1 < order.length && order[j + 1][0] === order[i][0]) j += 1;
+    for (let k = i; k <= j; k += 1) ranks[order[k][1]] = (i + j) / 2 + 1;
+    i = j + 1;
+  }
+  return ranks;
+}
+
+function story3Corr(a, b) {
+  const n = a.length;
+  const ma = a.reduce((s, x) => s + x, 0) / n;
+  const mb = b.reduce((s, x) => s + x, 0) / n;
+  let sab = 0;
+  let saa = 0;
+  let sbb = 0;
+  for (let i = 0; i < n; i += 1) {
+    sab += (a[i] - ma) * (b[i] - mb);
+    saa += (a[i] - ma) ** 2;
+    sbb += (b[i] - mb) ** 2;
+  }
+  return saa && sbb ? sab / Math.sqrt(saa * sbb) : null;
+}
+
+function story3Title(main, sub) {
+  return {
+    text: sub ? `<b>${main}</b><br><sup>${sub}</sup>` : `<b>${main}</b>`,
+    x: 0.01,
+    xanchor: 'left',
+    y: 0.97,
+    yanchor: 'top',
+    font: { size: story3Mobile() ? 13 : 15 },
+  };
+}
+
+// Plotly.newPlot (not react) so axes from another story's figure on the shared chart never carry over.
+function story3Plot(target, traces, layout) {
+  const mobile = story3Mobile();
+  const base = {
+    margin: { t: 84, r: mobile ? 12 : 24, b: 70, l: mobile ? 48 : 64 },
+    font: { size: mobile ? 11 : 12, color: STORY3_COLORS.ink },
+    paper_bgcolor: '#ffffff',
+    plot_bgcolor: '#ffffff',
+    legend: { orientation: 'h', x: 0, y: -0.16, yanchor: 'top', font: { size: mobile ? 10 : 12 } },
+  };
+  Plotly.newPlot(target, traces, { ...base, ...layout }, { responsive: true, displayModeBar: false });
+}
+
+function story3SeasonMonths(season, year) {
+  if (season === 'Winter') return [[year - 1, 12], [year, 1], [year, 2]];
+  const first = { Spring: 3, Summer: 6, Autumn: 9 }[season];
+  return [0, 1, 2].map((i) => [year, first + i]);
+}
+
+function story3YearHours(year) {
+  return Array.from({ length: 12 }, (_, i) => story3Hours(year, i + 1)).reduce((a, b) => a + b, 0);
+}
+
+function story3BuildAnnual(data, rows, years) {
+  const series = (set) => years.map((year) => {
+    const own = rows.filter((r) => r.year === year && set.includes(r.station));
+    const pool = story3Pool(own);
+    const flagged = set.filter((st) => own.filter((r) => r.station === st).reduce((s, r) => s + r.valid, 0) / story3YearHours(year) < STORY3_COMPLETE);
+    return { year, mean: pool ? pool.mean : null, flagged };
+  });
+  const change = (pts) => {
+    const a = pts[0];
+    const b = pts[pts.length - 1];
+    if (!a || !b || a.mean === null || b.mean === null) return null;
+    return { from: a.year, to: b.year, a: a.mean, b: b.mean, abs: b.mean - a.mean, pct: a.mean ? ((b.mean - a.mean) / a.mean) * 100 : null };
+  };
+  const full = series(data.stations);
+  const balanced = series(data.balanced);
+  const valued = full.filter((pt) => pt.mean !== null);
+  const marks = new Map();
+  const mark = (year, label) => marks.set(year, [...(marks.get(year) ?? []), label]);
+  let step = null;
+  if (valued.length) {
+    const hi = valued.reduce((m, pt) => (pt.mean > m.mean ? pt : m));
+    const lo = valued.reduce((m, pt) => (pt.mean < m.mean ? pt : m));
+    mark(hi.year, 'Highest');
+    if (lo.year !== hi.year) mark(lo.year, 'Lowest');
+    for (let i = 1; i < valued.length - 1; i += 1) {
+      const before = valued[i].mean - valued[i - 1].mean;
+      const after = valued[i + 1].mean - valued[i].mean;
+      if (before * after < 0 && !marks.has(valued[i].year)) mark(valued[i].year, before > 0 ? 'Local peak' : 'Local trough');
+    }
+    for (let i = 1; i < valued.length; i += 1) {
+      const d = valued[i].mean - valued[i - 1].mean;
+      if (!step || Math.abs(d) > Math.abs(step.d)) step = { from: valued[i - 1].year, to: valued[i].year, d };
+    }
+  }
+  return {
+    full,
+    balanced,
+    fullChange: change(full),
+    balChange: change(balanced),
+    marks,
+    step,
+    highYear: valued.length ? valued.reduce((m, pt) => (pt.mean > m.mean ? pt : m)) : null,
+    lowYear: valued.length ? valued.reduce((m, pt) => (pt.mean < m.mean ? pt : m)) : null,
+    flaggedFull: full.reduce((n, pt) => n + pt.flagged.length, 0),
+  };
+}
+
+function story3TextAnnual(model, data) {
+  const { p, annual: a } = model;
+  const flagged = a.full.filter((pt) => pt.flagged.length).map((pt) => `${pt.year}: ${pt.flagged.join(', ')}`);
+  document.getElementById('story3-annual-note').textContent =
+    `${p}, pooled by valid-observation count, so stations and months with more valid readings carry more weight. ` +
+    'Hollow markers include at least one station below 75% of that year\'s hours. Those values are kept and flagged, not removed. ' +
+    `Flagged station-years (all-stations line): ${flagged.join('; ') || 'none'}. ` +
+    `The balanced ${data.balanced.length}-station line uses only stations with all 72 months for every pollutant.`;
+  const c = a.fullChange;
+  const b = a.balChange;
+  const parts = [];
+  if (c) {
+    parts.push(`${p}'s pooled mean in ${c.to} was ${story3Fmt(Math.abs(c.abs))} ${story3Dir(c.abs)} than in ${c.from} (${story3Fmt(c.a)} → ${story3Fmt(c.b)}; ${story3Pct(c.pct)}), using all stations with data.`);
+  }
+  if (b) {
+    const opposite = c && Math.sign(b.abs) !== Math.sign(c.abs);
+    parts.push(`On the balanced ${data.balanced.length}-station set the change was ${story3Signed(b.abs)} (${story3Pct(b.pct)})${opposite ? ', in the opposite direction' : ''}.`);
+  }
+  if (a.highYear && a.lowYear) {
+    parts.push(`Highest year: ${a.highYear.year} (${story3Fmt(a.highYear.mean)}); lowest: ${a.lowYear.year} (${story3Fmt(a.lowYear.mean)}).`);
+  }
+  if (a.step) parts.push(`Largest year-to-year move: ${a.step.from} to ${a.step.to} (${story3Signed(a.step.d)}).`);
+  const first = a.full[0];
+  if (first && first.flagged.length) {
+    parts.push(`The ${first.year} all-stations value includes ${first.flagged.length} station${first.flagged.length === 1 ? '' : 's'} below 75% of that year's hours, so the balanced line is the safer like-for-like comparison.`);
+  }
+  parts.push('This describes how yearly levels differ; it does not show why.');
+  document.getElementById('story3-annual-takeaway').textContent = c ? parts.join(' ') : `No annual values are available for ${p}.`;
+}
+
+function renderStory3Annual(model, data, target) {
+  const { p, annual: a } = model;
+  const mobile = story3Mobile();
+  const trace = (pts, name, color, width, dash, size, rank) => ({
+    x: pts.map((pt) => pt.year),
+    y: pts.map((pt) => pt.mean),
+    mode: 'lines+markers',
+    name,
+    legendrank: rank,
+    line: { color, width, dash },
+    marker: { color: pts.map((pt) => (pt.flagged.length ? '#ffffff' : color)), line: { color, width: 2 }, size },
+    customdata: pts.map((pt) => (pt.flagged.length ? `Stations below 75% this year: ${pt.flagged.join(', ')}` : 'All contributing stations at least 75% complete this year')),
+    hovertemplate: `${name}<br>%{x}: %{y:.1f}<br>%{customdata}<extra></extra>`,
+  });
+  const balName = `Balanced ${data.balanced.length}-station check`;
+  const traces = [
+    trace(a.balanced, balName, STORY3_COLORS.balanced, 2, 'dot', 7, 2),
+    trace(a.full, `All ${data.stations.length} stations with data`, STORY3_COLORS.full, 4.5, 'solid', 12, 1),
+  ];
+  const annotations = [...a.marks].map(([year, labels]) => {
+    const pt = a.full.find((q) => q.year === year);
+    const up = labels.some((l) => l === 'Highest' || l === 'Local peak');
+    return {
+      x: year,
+      y: pt.mean,
+      text: `<b>${labels.join(' / ')}</b><br>${story3Fmt(pt.mean)}`,
+      showarrow: true,
+      arrowhead: 0,
+      arrowcolor: STORY3_COLORS.full,
+      ax: 0,
+      ay: up ? -42 : 42,
+      font: { size: mobile ? 10 : 12, color: STORY3_COLORS.full },
+      bgcolor: 'rgba(255,255,255,0.9)',
+    };
+  });
+  const values = [...a.full, ...a.balanced].map((pt) => pt.mean).filter((v) => v !== null);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const pad = (hi - lo || 1) * 0.35;
+  const c = a.fullChange;
+  const b = a.balChange;
+  const sub = c
+    ? `${c.from}→${c.to}: ${story3Signed(c.abs)} (${story3Pct(c.pct)}) all stations${b ? `<br>${b.from}→${b.to}: ${story3Signed(b.abs)} (${story3Pct(b.pct)}) balanced ${data.balanced.length}` : ''}`
+    : '';
+  story3Plot(target, traces, {
+    title: story3Title(`${p}: annual pooled mean`, sub),
+    xaxis: { title: 'Calendar year', dtick: 1, showgrid: false },
+    yaxis: { title: `${p} (units as recorded; not verified)`, range: [lo - pad, hi + pad], gridcolor: '#eef1f6', automargin: true },
+    annotations,
+  });
+}
+
+function story3BuildMonthly(rows, years) {
+  const table = years.map((year) => STORY3_MONTHS.map((_, i) => {
+    const pool = story3Pool(rows.filter((r) => r.year === year && r.month === i + 1));
+    return pool ? { ...pool, year, month: i + 1 } : null;
+  }));
+  const avg = STORY3_MONTHS.map((_, i) => {
+    const pool = story3Pool(rows.filter((r) => r.month === i + 1));
+    return pool ? { ...pool, month: i + 1 } : null;
+  });
+  const fullYears = years.filter((_, yi) => table[yi].every(Boolean));
+  const peaks = fullYears.map((year) => {
+    const cells = table[years.indexOf(year)];
+    const order = cells.map((c, i) => ({ i, m: c.mean, flag: c.incomplete > 0 })).sort((a, b) => b.m - a.m);
+    return {
+      year,
+      peak: order[0].i,
+      trough: order[11].i,
+      top3: order.slice(0, 3).map((o) => o.i),
+      bottom3: order.slice(9).map((o) => o.i),
+      flagged: Number(order[0].flag) + Number(order[11].flag),
+    };
+  });
+  const complete = avg.every(Boolean);
+  const hiM = complete ? avg.reduce((m, c, i) => (c.mean > avg[m].mean ? i : m), 0) : null;
+  const loM = complete ? avg.reduce((m, c, i) => (c.mean < avg[m].mean ? i : m), 0) : null;
+  const tally = (key) => {
+    const counts = new Array(12).fill(0);
+    peaks.forEach((pk) => { counts[pk[key]] += 1; });
+    const best = counts.reduce((m, c, i) => (c > counts[m] ? i : m), 0);
+    return { month: best, count: counts[best] };
+  };
+  const ranks = fullYears.map((y) => story3Ranks(table[years.indexOf(y)].map((c) => c.mean)));
+  const corrs = [];
+  for (let i = 0; i < ranks.length; i += 1) {
+    for (let j = i + 1; j < ranks.length; j += 1) {
+      const c = story3Corr(ranks[i], ranks[j]);
+      if (c !== null) corrs.push(c);
+    }
+  }
+  return {
+    table,
+    avg,
+    peaks,
+    hiM,
+    loM,
+    flaggedCells: table.flat().filter((c) => c && c.incomplete).length,
+    hiPeak: hiM === null ? 0 : peaks.filter((pk) => pk.peak === hiM).length,
+    hiTop3: hiM === null ? 0 : peaks.filter((pk) => pk.top3.includes(hiM)).length,
+    loTrough: loM === null ? 0 : peaks.filter((pk) => pk.trough === loM).length,
+    loBottom3: loM === null ? 0 : peaks.filter((pk) => pk.bottom3.includes(loM)).length,
+    modePeak: peaks.length ? tally('peak') : null,
+    modeTrough: peaks.length ? tally('trough') : null,
+    flaggedExtremes: peaks.reduce((n, pk) => n + pk.flagged, 0),
+    spearman: corrs.length ? corrs.reduce((a, b) => a + b, 0) / corrs.length : null,
+  };
+}
+
+function story3TextMonthly(model) {
+  const { p, years, monthly: m } = model;
+  const n = m.peaks.length;
+  const cells = years.length * 12;
+  const eachYear = (key) => m.peaks.map((pk) => `${pk.year} ${STORY3_MONTHS[pk[key]]}`).join('; ');
+  let note = `† = at least one contributing station-month is below 75% of its hours. Those cells are included and marked, not removed. Flagged cells for ${p}: ${m.flaggedCells} of ${cells}. ` +
+    `Highest month in each year: ${eachYear('peak') || 'n/a'}. Lowest: ${eachYear('trough') || 'n/a'}.`;
+  if (m.spearman !== null) {
+    note += ` Optional method detail: the average rank correlation between years' month-by-month patterns is ${m.spearman.toFixed(2)} (1 = identical month order; 0 = unrelated). It is descriptive, not a significance test.`;
+  }
+  document.getElementById('story3-monthly-note').textContent = note;
+  const el = document.getElementById('story3-monthly-takeaway');
+  if (m.hiM === null || !n) {
+    el.textContent = `Not every month has data in every year for ${p}, so recurrence is not calculated.`;
     return;
   }
-
-  const bySeason = {};
-  data.forEach((r) => {
-    const key = r.season || 'unknown';
-    if (!bySeason[key]) bySeason[key] = { sum: 0, count: 0 };
-    bySeason[key].sum += Number(r.mean_value || 0);
-    bySeason[key].count += 1;
-  });
-
-  const seasons = Object.keys(bySeason);
-  const means = seasons.map((s) => bySeason[s].count ? bySeason[s].sum / bySeason[s].count : 0);
-  Plotly.newPlot(chartEl, [{ x: seasons, y: means, type: 'bar' }], {
-    title: 'Average seasonal pollutant level (aggregated)',
-    xaxis: { title: 'Season' },
-    yaxis: { title: 'Concentration (original units)' },
-  }, { responsive: true });
+  const share = m.hiTop3 / n;
+  const repeat = share >= 0.8 ? 'repeats closely' : (share >= 0.5 ? 'repeats partly' : 'does not repeat reliably');
+  const hi = STORY3_MONTHS[m.hiM];
+  const lo = STORY3_MONTHS[m.loM];
+  const parts = [
+    `Averaged over ${story3Years(years)}, ${p} was highest in ${hi} (${story3Fmt(m.avg[m.hiM].mean)}) and lowest in ${lo} (${story3Fmt(m.avg[m.loM].mean)}).`,
+    `${hi} was the highest month of its year in ${m.hiPeak} of ${n} years, and among the top three in ${m.hiTop3}. ${lo} was the lowest in ${m.loTrough} of ${n} years, and among the bottom three in ${m.loBottom3}.`,
+    `So the month-by-month timing ${repeat} across years (wording rule: top three in at least 80% of years = closely, 50% = partly).`,
+  ];
+  if (m.flaggedExtremes) parts.push(`${m.flaggedExtremes} of the ${n * 2} yearly highest/lowest cells include station-months below 75% (marked †).`);
+  el.textContent = parts.join(' ');
 }
+
+function renderStory3Monthly(model, target) {
+  const { p, years, monthly: m } = model;
+  const mobile = story3Mobile();
+  const z = STORY3_MONTHS.map((_, mi) => years.map((_, yi) => (m.table[yi][mi] ? m.table[yi][mi].mean : null)));
+  const hover = STORY3_MONTHS.map((_, mi) => years.map((_, yi) => {
+    const c = m.table[yi][mi];
+    return c ? `${c.groups} station-months · ${c.valid.toLocaleString('en-GB')} valid obs${c.incomplete ? ` · ${c.incomplete} below 75% (†)` : ''}` : 'No valid data';
+  }));
+  const values = z.flat().filter((v) => v !== null);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const annotations = [];
+  STORY3_MONTHS.forEach((name, mi) => years.forEach((year, yi) => {
+    const c = m.table[yi][mi];
+    if (!c) return;
+    const t = hi > lo ? (c.mean - lo) / (hi - lo) : 0;
+    annotations.push({
+      xref: 'x',
+      yref: 'y',
+      x: String(year),
+      y: name,
+      text: `${c.mean.toFixed(1)}${c.incomplete ? '†' : ''}`,
+      showarrow: false,
+      font: { size: mobile ? 9 : 11, color: t >= 0.72 ? '#ffffff' : '#1a1f2e' },
+    });
+  }));
+  const barColors = m.avg.map((c, i) => (i === m.hiM ? '#b30000' : (i === m.loM ? STORY3_COLORS.winter : STORY3_COLORS.context)));
+  const avgMax = Math.max(...m.avg.filter(Boolean).map((c) => c.mean));
+  story3Plot(target, [
+    {
+      type: 'heatmap',
+      z,
+      x: years.map(String),
+      y: STORY3_MONTHS,
+      customdata: hover,
+      hovertemplate: `${p} · %{y} %{x}<br>Pooled mean %{z:.1f}<br>%{customdata}<extra></extra>`,
+      colorscale: [[0, '#ffffcc'], [0.125, '#ffeda0'], [0.25, '#fed976'], [0.375, '#feb24c'], [0.5, '#fd8d3c'], [0.625, '#fc4e2a'], [0.75, '#e31a1c'], [0.875, '#bd0026'], [1, '#800026']],
+      showscale: false,
+      xgap: 2,
+      ygap: 2,
+    },
+    {
+      type: 'bar',
+      orientation: 'h',
+      x: m.avg.map((c) => (c ? c.mean : null)),
+      y: STORY3_MONTHS,
+      xaxis: 'x2',
+      yaxis: 'y2',
+      marker: { color: barColors },
+      text: m.avg.map((c) => (c ? c.mean.toFixed(1) : '')),
+      textposition: 'outside',
+      cliponaxis: false,
+      textfont: { size: mobile ? 9 : 11 },
+      hovertemplate: `${p} · %{y}, all years<br>Pooled mean %{x:.1f}<extra></extra>`,
+    },
+  ], {
+    title: story3Title(`${p}: month-by-year pooled mean`, 'Left: each month and year. Right: all-years average (red = highest month, blue = lowest).'),
+    showlegend: false,
+    xaxis: { domain: [0, 0.74], type: 'category', title: 'Calendar year', anchor: 'y' },
+    yaxis: { type: 'category', categoryorder: 'array', categoryarray: STORY3_MONTHS, autorange: 'reversed', anchor: 'x' },
+    xaxis2: { domain: [0.8, 1], anchor: 'y2', range: [0, avgMax * 1.35], showgrid: false, zeroline: false, showticklabels: false, title: 'All-years mean' },
+    yaxis2: { type: 'category', categoryorder: 'array', categoryarray: STORY3_MONTHS, autorange: 'reversed', anchor: 'x2', showticklabels: false },
+    annotations,
+  });
+}
+
+
 
 async function renderStory4() {
   const filter = document.getElementById('aqhi-station-filter');
@@ -1099,29 +1535,597 @@ async function renderStory4() {
   }, { responsive: true });
 }
 
+function story3BuildSeasonal(data, rows) {
+  const groups = new Map();
+  rows.forEach((r) => {
+    const { season, year } = story3Season(r);
+    const key = `${season}|${year}`;
+    if (!groups.has(key)) groups.set(key, { season, year, rows: [], months: new Set() });
+    const g = groups.get(key);
+    g.rows.push(r);
+    g.months.add(`${r.year}-${r.month}`);
+  });
+  groups.forEach((g) => {
+    const hours = story3SeasonMonths(g.season, g.year).reduce((s, [yy, mm]) => s + story3Hours(yy, mm), 0);
+    g.pool = story3Pool(g.rows);
+    g.present = g.months.size === 3;
+    g.coverage = g.pool ? g.pool.valid / (data.stations.length * hours) : 0;
+    g.flaggedStations = data.stations.filter((st) => g.rows.filter((r) => r.station === st).reduce((s, r) => s + r.valid, 0) / hours < STORY3_COMPLETE);
+    g.ok = g.present && g.coverage >= STORY3_COMPLETE;
+    if (!g.present) g.reason = `only ${g.months.size} of 3 months present`;
+    else g.reason = g.coverage < STORY3_COMPLETE ? `valid observations cover ${(g.coverage * 100).toFixed(0)}% of expected hours` : '';
+  });
+  const list = [...groups.values()];
+  const years = [...new Set(list.map((g) => g.year))].sort((a, b) => a - b);
+  const get = (season, year) => groups.get(`${season}|${year}`);
+  const comparable = years.filter((y) => get('Winter', y)?.ok && get('Summer', y)?.ok);
+  const gaps = comparable.map((year) => {
+    const winter = get('Winter', year).pool.mean;
+    const summer = get('Summer', year).pool.mean;
+    return { year, winter, summer, diff: winter - summer };
+  });
+  const outliers = [];
+  if (gaps.length >= 4) {
+    gaps.forEach((g) => {
+      const median = story3Median(gaps.filter((o) => o !== g).map((o) => o.diff));
+      if (median > 0 && (g.diff / median > 1.5 || g.diff / median < 0.5)) outliers.push({ year: g.year, diff: g.diff, ratio: g.diff / median });
+    });
+  }
+  const sorted = [...gaps].sort((a, b) => a.diff - b.diff);
+  return {
+    groups,
+    years,
+    get,
+    comparable,
+    gaps,
+    outliers,
+    incomplete: list.filter((g) => !g.ok).sort((a, b) => a.year - b.year || STORY3_SEASONS.indexOf(a.season) - STORY3_SEASONS.indexOf(b.season)),
+    positives: gaps.filter((g) => g.diff > 0).length,
+    meanGap: gaps.length ? gaps.reduce((s, g) => s + g.diff, 0) / gaps.length : null,
+    minGap: sorted[0] ?? null,
+    maxGap: sorted[sorted.length - 1] ?? null,
+    flaggedStations: comparable.reduce((n, y) => n + get('Winter', y).flaggedStations.length + get('Summer', y).flaggedStations.length, 0),
+  };
+}
+
+function story3GroupName(g) {
+  return `${g.season} ${g.year}`;
+}
+
+function story3TextSeasonal(model) {
+  const { p, seasonal: s } = model;
+  const skipped = s.incomplete.map((g) => `${story3GroupName(g)} (${g.reason})`);
+  document.getElementById('story3-seasonal-note').textContent =
+    'Winter for year Y = December of Y−1 plus January and February of Y. A season is compared only when all three months are present and valid observations cover at least 75% of the expected hours across stations. ' +
+    `Comparable winter–summer years: ${story3Years(s.comparable)}. ` +
+    `Kept visible but not compared: ${skipped.join('; ') || 'none'}. ` +
+    `Station-seasons below 75% inside the comparable years: ${s.flaggedStations}.`;
+  const el = document.getElementById('story3-seasonal-takeaway');
+  if (!s.gaps.length) {
+    el.textContent = `No year has both a comparable winter and a comparable summer for ${p}.`;
+    return;
+  }
+  const n = s.gaps.length;
+  const verdict = s.positives === n ? `winter was higher than summer in every one of the ${n} comparable years (${story3Years(s.comparable)})` : `winter was higher than summer in ${s.positives} of ${n} comparable years (${story3Years(s.comparable)})`;
+  const parts = [
+    `${p}: ${verdict}.`,
+    `The winter-minus-summer difference averaged ${story3Signed(s.meanGap)}, ranging from ${story3Signed(s.minGap.diff)} in ${s.minGap.year} to ${story3Signed(s.maxGap.diff)} in ${s.maxGap.year}.`,
+  ];
+  s.outliers.forEach((o) => {
+    parts.push(`The ${o.year} gap (${story3Signed(o.diff)}) is ${o.ratio.toFixed(1)} times the median of the other years; the source data for ${p} in that period have not been checked, so treat it with caution.`);
+  });
+  parts.push('These are descriptive differences; weather and emissions are not analysed.');
+  el.textContent = parts.join(' ');
+}
+
+function story3SeasonHover(g) {
+  const state = g.ok ? 'comparable' : `not compared: ${g.reason}`;
+  return `${story3GroupName(g)}<br>Pooled mean ${story3Fmt(g.pool ? g.pool.mean : null)}<br>${g.months.size} of 3 months · ${(g.coverage * 100).toFixed(0)}% of expected hours<br>${g.flaggedStations.length} station(s) below 75%<br>${state}`;
+}
+
+function renderStory3Seasonal(model, target) {
+  const { p, seasonal: s } = model;
+  const mobile = story3Mobile();
+  const label = (y) => (s.comparable.includes(y) ? String(y) : `${y} †`);
+  const labels = s.years.map(label);
+  const point = (g) => ({ x: g.pool.mean, y: label(g.year), g });
+  const pick = (season, ok) => s.years.map((y) => s.get(season, y)).filter((g) => g && g.pool && g.ok === ok).map(point);
+  const context = [...pick('Spring', true), ...pick('Autumn', true), ...pick('Spring', false), ...pick('Autumn', false)];
+  const winter = pick('Winter', true);
+  const summer = pick('Summer', true);
+  const skipped = [...pick('Winter', false), ...pick('Summer', false)];
+  const gapRows = s.gaps;
+  const connectors = {
+    type: 'scatter',
+    mode: 'lines',
+    x: gapRows.flatMap((g) => [g.winter, g.summer, null]),
+    y: gapRows.flatMap((g) => [label(g.year), label(g.year), null]),
+    line: { color: '#cbd5e0', width: 4 },
+    hoverinfo: 'skip',
+    showlegend: false,
+  };
+  const dots = (items, name, color, symbol, size) => ({
+    type: 'scatter',
+    mode: 'markers',
+    name,
+    x: items.map((i) => i.x),
+    y: items.map((i) => i.y),
+    marker: { color, symbol, size, line: { color: '#ffffff', width: 1 } },
+    customdata: items.map((i) => story3SeasonHover(i.g)),
+    hovertemplate: '%{customdata}<extra></extra>',
+  });
+  const traces = [
+    connectors,
+    {
+      ...dots(context, 'Spring and autumn (context)', STORY3_COLORS.context, 'circle', 8),
+      marker: { color: context.map((i) => (i.g.ok ? STORY3_COLORS.context : '#ffffff')), size: 8, line: { color: STORY3_COLORS.context, width: 1.5 } },
+    },
+    dots(winter, 'Winter (Dec–Feb)', STORY3_COLORS.winter, 'circle', mobile ? 12 : 14),
+    dots(summer, 'Summer (Jun–Aug)', STORY3_COLORS.summer, 'diamond', mobile ? 12 : 14),
+    {
+      ...dots(skipped, 'Not compared (incomplete or low coverage)', '#ffffff', 'circle', mobile ? 12 : 14),
+      marker: { color: '#ffffff', size: mobile ? 12 : 14, symbol: skipped.map((i) => (i.g.season === 'Winter' ? 'circle' : 'diamond')), line: { color: '#4a5568', width: 2 } },
+    },
+    {
+      type: 'scatter',
+      mode: 'text',
+      x: gapRows.map((g) => Math.max(g.winter, g.summer)),
+      y: gapRows.map((g) => label(g.year)),
+      text: gapRows.map((g) => `<b>${story3Signed(g.diff)}</b>`),
+      textposition: 'middle right',
+      cliponaxis: false,
+      textfont: { size: mobile ? 11 : 13, color: STORY3_COLORS.ink },
+      showlegend: false,
+      hoverinfo: 'skip',
+    },
+  ];
+  const xs = [...context, ...winter, ...summer, ...skipped].map((i) => i.x);
+  const lo = Math.min(...xs);
+  const hi = Math.max(...xs);
+  const span = hi - lo || 1;
+  const sub = s.gaps.length
+    ? `Labels = winter minus summer. Average over ${story3Years(s.comparable)}: ${story3Signed(s.meanGap)}. † = year not compared.`
+    : 'No comparable winter–summer years.';
+  story3Plot(target, traces, {
+    title: story3Title(`${p}: winter vs summer by year`, sub),
+    xaxis: { title: `${p} pooled mean (units as recorded; not verified)`, range: [lo - span * 0.08, hi + span * 0.18], gridcolor: '#eef1f6', zeroline: false },
+    yaxis: { type: 'category', categoryorder: 'array', categoryarray: labels, autorange: 'reversed', automargin: true, showgrid: false },
+    legend: { orientation: 'h', x: 0, y: -0.2, yanchor: 'top', font: { size: mobile ? 10 : 12 } },
+  });
+}
+
+function story3BuildStations(data, rows, seasonal) {
+  const years = seasonal.comparable;
+  const part = (own, season) => {
+    const mine = [];
+    let expected = 0;
+    years.forEach((y) => story3SeasonMonths(season, y).forEach(([yy, mm]) => {
+      expected += story3Hours(yy, mm);
+      const r = own.find((x) => x.year === yy && x.month === mm);
+      if (r) mine.push(r);
+    }));
+    const pool = story3Pool(mine);
+    const valid = pool ? pool.valid : 0;
+    return { mean: pool ? pool.mean : null, valid, coverage: expected ? valid / expected : 0, months: mine.length, monthsExpected: years.length * 3 };
+  };
+  const list = data.stations.map((station) => {
+    const own = rows.filter((r) => r.station === station);
+    const w = part(own, 'Winter');
+    const s = part(own, 'Summer');
+    const diff = w.mean !== null && s.mean !== null ? w.mean - s.mean : null;
+    const reasons = [];
+    [['winter', w], ['summer', s]].forEach(([name, x]) => {
+      if (x.months < x.monthsExpected) reasons.push(`${name}: ${x.months} of ${x.monthsExpected} months present`);
+      if (x.coverage < STORY3_COMPLETE) reasons.push(`${name}: ${(x.coverage * 100).toFixed(0)}% of expected hours`);
+    });
+    return { station, w, s, diff, flag: reasons.length > 0, reasons };
+  });
+  list.sort((a, b) => {
+    if (a.diff === null || b.diff === null) return (a.diff === null) - (b.diff === null) || a.station.localeCompare(b.station);
+    return b.diff - a.diff;
+  });
+  const withDiff = list.filter((x) => x.diff !== null);
+  return {
+    years,
+    list,
+    withDiff,
+    positives: withDiff.filter((x) => x.diff > 0).length,
+    median: story3Median(withDiff.map((x) => x.diff)),
+    maxRow: withDiff[0] ?? null,
+    minRow: withDiff[withDiff.length - 1] ?? null,
+    flagged: list.filter((x) => x.flag),
+  };
+}
+
+function story3TextStations(model) {
+  const { p, stations: st } = model;
+  document.getElementById('story3-stations-note').textContent =
+    `Same comparable years for every station: ${story3Years(st.years)}. Each mark is the station's winter or summer mean over those years, weighted by valid observations. ` +
+    `Hollow marks (†) are incomplete records, with missing months or under 75% of expected hours. They are kept and flagged: ${st.flagged.map((x) => x.station).join(', ') || 'none'}. ` +
+    'Station IDs are shown as recorded; no location or station type is inferred from them.';
+  const el = document.getElementById('story3-stations-takeaway');
+  if (!st.withDiff.length) {
+    el.textContent = `No station has both winter and summer data in the comparable years for ${p}.`;
+  } else {
+    el.textContent =
+      `${p}: winter was higher than summer at ${st.positives} of ${st.withDiff.length} stations with both seasons (${story3Years(st.years)}). ` +
+      `The winter-minus-summer difference ranged from ${story3Signed(st.minRow.diff)} (${st.minRow.station}) to ${story3Signed(st.maxRow.diff)} (${st.maxRow.station}); the median was ${story3Signed(st.median)}. ` +
+      'Differences between stations are descriptive and are not adjusted for siting or monitor type.';
+  }
+  story3TextStationSelected(model);
+}
+
+function story3TextStationSelected(model) {
+  const el = document.getElementById('story3-stations-selected');
+  const x = model.stations.list.find((r) => r.station === story3State.station);
+  if (!x) {
+    el.textContent = 'Choose a station above to highlight it in the chart. All other stations stay visible.';
+    return;
+  }
+  const flag = x.flag ? ` Incomplete record: ${x.reasons.join('; ')}.` : ' Record complete for these years.';
+  el.textContent = `${x.station}: winter ${story3Fmt(x.w.mean)}, summer ${story3Fmt(x.s.mean)}, difference ${story3Signed(x.diff)}.${flag}`;
+}
+
+function renderStory3Stations(model, target) {
+  const { p, stations: st } = model;
+  const mobile = story3Mobile();
+  const order = st.list.map((x) => x.station);
+  const tick = (x) => {
+    const text = x.flag ? `${x.station} †` : x.station;
+    return x.station === story3State.station ? `<b>${text}</b>` : text;
+  };
+  const have = st.list.filter((x) => x.diff !== null);
+  const size = (x) => (x.station === story3State.station ? (mobile ? 14 : 16) : (mobile ? 8 : 10));
+  const info = (x) => `${x.station}${x.flag ? ' (incomplete record)' : ''}<br>Winter ${story3Fmt(x.w.mean)} · ${x.w.valid.toLocaleString('en-GB')} valid obs · ${(x.w.coverage * 100).toFixed(0)}% coverage<br>` +
+    `Summer ${story3Fmt(x.s.mean)} · ${x.s.valid.toLocaleString('en-GB')} valid obs · ${(x.s.coverage * 100).toFixed(0)}% coverage<br>Winter − summer ${story3Signed(x.diff)}${x.flag ? `<br>${x.reasons.join('; ')}` : ''}`;
+  const dots = (key, name, color, symbol) => ({
+    type: 'scatter',
+    mode: 'markers',
+    name,
+    x: have.map((x) => x[key].mean),
+    y: have.map((x) => x.station),
+    marker: {
+      color: have.map((x) => (x.flag ? '#ffffff' : color)),
+      symbol,
+      size: have.map(size),
+      line: { color, width: 2 },
+    },
+    customdata: have.map(info),
+    hovertemplate: '%{customdata}<extra></extra>',
+  });
+  const missing = st.list.filter((x) => x.diff === null);
+  const xs = have.flatMap((x) => [x.w.mean, x.s.mean]);
+  const lo = xs.length ? Math.min(...xs) : 0;
+  const hi = xs.length ? Math.max(...xs) : 1;
+  const span = hi - lo || 1;
+  const sel = order.indexOf(story3State.station);
+  const traces = [
+    {
+      type: 'scatter',
+      mode: 'lines',
+      x: have.flatMap((x) => [x.w.mean, x.s.mean, null]),
+      y: have.flatMap((x) => [x.station, x.station, null]),
+      line: { color: '#cbd5e0', width: 3 },
+      hoverinfo: 'skip',
+      showlegend: false,
+    },
+    dots('s', 'Summer', STORY3_COLORS.summer, 'diamond'),
+    dots('w', 'Winter', STORY3_COLORS.winter, 'circle'),
+    {
+      type: 'scatter',
+      mode: 'markers',
+      name: 'Hollow = incomplete record',
+      x: [null],
+      y: [null],
+      marker: { color: '#ffffff', size: 10, line: { color: '#4a5568', width: 2 } },
+      hoverinfo: 'skip',
+    },
+    {
+      type: 'scatter',
+      mode: 'text',
+      x: missing.map(() => lo),
+      y: missing.map((x) => x.station),
+      text: missing.map(() => 'no comparable data'),
+      textposition: 'middle right',
+      showlegend: false,
+      hoverinfo: 'skip',
+    },
+  ];
+  story3Plot(target, traces, {
+    title: story3Title(`${p}: winter vs summer by station`, `Same years for every station: ${story3Years(st.years)}. Sorted by winter minus summer. † = incomplete record.`),
+    xaxis: { title: `${p} pooled mean (units as recorded; not verified)`, range: [lo - span * 0.06, hi + span * 0.06], gridcolor: '#eef1f6', zeroline: false },
+    yaxis: {
+      type: 'category',
+      categoryorder: 'array',
+      categoryarray: order,
+      autorange: 'reversed',
+      tickmode: 'array',
+      tickvals: order,
+      ticktext: st.list.map(tick),
+      tickfont: { size: mobile ? 10 : 12 },
+      automargin: true,
+      gridcolor: '#f2f4f8',
+      showgrid: true,
+    },
+    shapes: sel >= 0 ? [{ type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: sel - 0.5, y1: sel + 0.5, fillcolor: '#fff3bf', opacity: 0.75, line: { width: 0 }, layer: 'below' }] : [],
+    margin: { t: 84, r: mobile ? 12 : 24, b: 78, l: mobile ? 96 : 120 },
+  });
+}
+
+function renderStory3StationTable(model) {
+  const host = document.getElementById('story3-stations-table');
+  const { stations: st } = model;
+  const head = ['Station ID', 'Winter mean', 'Summer mean', 'Winter − summer', 'Winter valid obs', 'Summer valid obs', 'Winter coverage', 'Summer coverage', 'Record'];
+  const table = document.createElement('table');
+  table.className = 'story3-table';
+  const thead = table.createTHead().insertRow();
+  head.forEach((h) => {
+    const th = document.createElement('th');
+    th.textContent = h;
+    thead.appendChild(th);
+  });
+  const body = table.createTBody();
+  st.list.forEach((x) => {
+    const tr = body.insertRow();
+    if (x.station === story3State.station) tr.className = 'is-selected';
+    [
+      x.station,
+      story3Fmt(x.w.mean),
+      story3Fmt(x.s.mean),
+      story3Signed(x.diff),
+      x.w.valid.toLocaleString('en-GB'),
+      x.s.valid.toLocaleString('en-GB'),
+      `${(x.w.coverage * 100).toFixed(0)}%`,
+      `${(x.s.coverage * 100).toFixed(0)}%`,
+      x.flag ? `Incomplete: ${x.reasons.join('; ')}` : 'Complete',
+    ].forEach((text) => {
+      tr.insertCell().textContent = text;
+    });
+  });
+  host.replaceChildren(table);
+}
+
+function story3BuildCoverage(data, rows, years) {
+  const stationsP = new Set(rows.map((r) => r.station));
+  const perStation = new Map();
+  rows.forEach((r) => perStation.set(r.station, (perStation.get(r.station) ?? 0) + 1));
+  const monthsPer = years.length * 12;
+  const possible = stationsP.size * monthsPer;
+  const possibleHours = stationsP.size * years.reduce((s, y) => s + story3YearHours(y), 0);
+  return {
+    stationsP: stationsP.size,
+    present: rows.length,
+    possible,
+    below: rows.filter((r) => r.coverage < STORY3_COMPLETE).length,
+    validShare: possibleHours ? rows.reduce((s, r) => s + r.valid, 0) / possibleHours : null,
+    fullRecord: [...perStation.values()].filter((n) => n === monthsPer).length,
+    balanced: data.balanced.length,
+    monthsPer,
+  };
+}
+
+function story3BuildFindings(model, data) {
+  const { p, annual: a, monthly: m, seasonal: s, stations: st, years } = model;
+  const out = [];
+  const c = a.fullChange;
+  const b = a.balChange;
+  if (c) {
+    const same = b && Math.sign(b.abs) === Math.sign(c.abs);
+    out.push({
+      title: 'Yearly level',
+      text: `${p} was ${story3Fmt(Math.abs(c.abs))} ${story3Dir(c.abs)} in ${c.to} than in ${c.from} (${story3Pct(c.pct)}) across all stations with data` +
+        (b ? `, and ${story3Signed(b.abs)} (${story3Pct(b.pct)}) on the balanced ${data.balanced.length}-station set. ${same ? 'Both comparisons point the same way.' : 'The two comparisons point in opposite directions, so the direction depends on which stations are included.'}` : '.'),
+    });
+  } else {
+    out.push({ title: 'Yearly level', text: `No annual comparison is available for ${p}.` });
+  }
+  if (s.gaps.length) {
+    let text = `Winter was higher than summer in ${s.positives} of ${s.gaps.length} comparable years (${story3Years(s.comparable)}); the gap averaged ${story3Signed(s.meanGap)}.`;
+    if (st.withDiff.length) text += ` At station level winter was higher at ${st.positives} of ${st.withDiff.length} stations over the same years.`;
+    if (s.outliers.length) text += ` The ${story3List(s.outliers.map((o) => o.year))} gap is unusually far from the other years, so treat it with caution.`;
+    out.push({ title: 'Winter–summer gap', text });
+  } else {
+    out.push({ title: 'Winter–summer gap', text: `No year has both a comparable winter and a comparable summer for ${p}.` });
+  }
+  if (m.hiM !== null && m.peaks.length) {
+    out.push({
+      title: 'Month-by-month timing',
+      text: `${STORY3_MONTHS[m.hiM]} had the highest ${story3Years(years)} average and was the highest month of its year in ${m.hiPeak} of ${m.peaks.length} years; ` +
+        `${STORY3_MONTHS[m.loM]} was the lowest in ${m.loTrough} of ${m.peaks.length}.`,
+    });
+  } else {
+    out.push({ title: 'Month-by-month timing', text: `Not every month has data in every year for ${p}, so recurrence is not reported.` });
+  }
+  return out;
+}
+
+function story3Model(data, p) {
+  if (story3ModelCache.has(p)) return story3ModelCache.get(p);
+  const rows = data.rows.filter((r) => r.pollutant === p);
+  const years = [...new Set(data.rows.map((r) => r.year))].sort((x, y) => x - y);
+  const seasonal = story3BuildSeasonal(data, rows);
+  const model = {
+    p,
+    rows,
+    years,
+    annual: story3BuildAnnual(data, rows, years),
+    monthly: story3BuildMonthly(rows, years),
+    seasonal,
+    stations: story3BuildStations(data, rows, seasonal),
+    coverage: story3BuildCoverage(data, rows, years),
+  };
+  model.findings = story3BuildFindings(model, data);
+  story3ModelCache.set(p, model);
+  return model;
+}
+
+function story3UpdateText(model, data) {
+  story3TextAnnual(model, data);
+  story3TextMonthly(model);
+  story3TextSeasonal(model);
+  story3TextStations(model);
+  renderStory3StationTable(model);
+}
+
+function story3PopulateStations(data) {
+  const select = document.getElementById('story3-station');
+  if (!select || select.options.length > 1) return;
+  data.stations.forEach((st) => {
+    const option = document.createElement('option');
+    option.value = st;
+    option.textContent = st;
+    select.appendChild(option);
+  });
+  select.value = story3State.station;
+}
+
+function renderStory3Limits(model, data, target) {
+  const { p, coverage: c, seasonal: s } = model;
+  target.replaceChildren();
+  const heading = document.createElement('h3');
+  heading.className = 'story3-panel-heading';
+  heading.textContent = `${p}: what the data support`;
+  const findings = document.createElement('ol');
+  findings.className = 'story3-findings';
+  model.findings.forEach((f) => {
+    const li = document.createElement('li');
+    const strong = document.createElement('strong');
+    strong.textContent = f.title;
+    const text = document.createElement('span');
+    text.textContent = f.text;
+    li.append(strong, text);
+    findings.appendChild(li);
+  });
+  const pct = (x) => (x === null ? 'n/a' : `${(x * 100).toFixed(1)}%`);
+  const indicators = document.createElement('div');
+  indicators.className = 'story3-indicators';
+  [
+    [String(c.stationsP), `stations reporting ${p}`],
+    [String(c.fullRecord), `stations with all ${c.monthsPer} months of ${p}`],
+    [`${c.present} / ${c.possible}`, 'station-months present'],
+    [String(c.below), 'station-months below 75% of hours (included, flagged)'],
+    [pct(c.validShare), `of possible hourly readings are valid`],
+    [String(c.balanced), 'stations in the balanced set (all pollutants, all months)'],
+  ].forEach(([value, label]) => {
+    const card = document.createElement('div');
+    card.className = 'story3-indicator';
+    const big = document.createElement('span');
+    big.className = 'story3-indicator-value';
+    big.textContent = value;
+    const text = document.createElement('span');
+    text.className = 'story3-indicator-label';
+    text.textContent = label;
+    card.append(big, text);
+    indicators.appendChild(card);
+  });
+  target.append(heading, findings, indicators);
+  const cautions = [];
+  if (p === 'O3') cautions.push('O3 results are preliminary. Source-data concerns for this pollutant are not resolved, so read its findings cautiously.');
+  s.outliers.forEach((o) => cautions.push(`The ${o.year} winter–summer gap (${story3Signed(o.diff)}) is ${o.ratio.toFixed(1)} times the median of the other years; its source data have not been checked.`));
+  if (cautions.length) {
+    const box = document.createElement('div');
+    box.className = 'story3-caution';
+    cautions.forEach((text) => {
+      const line = document.createElement('p');
+      line.textContent = text;
+      box.appendChild(line);
+    });
+    target.appendChild(box);
+  }
+}
+
+
+const story3ValidationEl = document.getElementById('story3-validation');
+
+function story3DrawView(view, model, data, target) {
+  if (view === 'annual') renderStory3Annual(model, data, target);
+  else if (view === 'monthly') renderStory3Monthly(model, target);
+  else if (view === 'seasonal') renderStory3Seasonal(model, target);
+  else if (view === 'stations') renderStory3Stations(model, target);
+  else renderStory3Limits(model, data, target);
+}
+
+// step may be null (a refresh triggered while another story owns the shared chart); then only inline mobile content updates.
+async function renderStory3(step) {
+  const token = story3Token;
+  const view = step ? step.dataset.view : null;
+  const mobile = story3Mobile();
+  const p = story3State.pollutant;
+  const data = await loadStory3();
+  if (token !== story3Token) return;
+  if (step) setStatus(`Story 3 (${p}): seasonal air quality, observation-weighted monthly summaries.`);
+  const target = !step ? null : (view === 'limits' ? story3ValidationEl : chartEl);
+  if (!data.rows.length || !data.rows.some((r) => r.pollutant === p)) {
+    const message = `Story 3 monthly summary has no ${p} data (output/analysis/story3_monthly_summary.csv).`;
+    if (mobile) STORY3_VIEWS.forEach((v) => { document.getElementById(`story3-inline-${v}`).textContent = message; });
+    else if (target === chartEl) renderPlaceholder('Story 3 — Seasonal Air Quality', message);
+    else if (target) target.textContent = message;
+    return;
+  }
+  const model = story3Model(data, p);
+  story3PopulateStations(data);
+  story3UpdateText(model, data);
+  if (mobile) {
+    const key = `${p}|${story3State.station}`;
+    STORY3_VIEWS.forEach((v) => {
+      if (story3Drawn.get(v) === key) return;
+      story3DrawView(v, model, data, document.getElementById(`story3-inline-${v}`));
+      story3Drawn.set(v, key);
+    });
+  } else if (target) {
+    story3DrawView(view, model, data, target);
+  }
+}
+
+function story3ActiveStep() {
+  const active = document.querySelector('.step.is-active');
+  return active && active.dataset.story === 'story3' ? active : null;
+}
+
+function setStory3Pollutant(value) {
+  story3State.pollutant = value;
+  document.querySelectorAll('.story3-pollutant').forEach((el) => { el.value = value; });
+  story3Token += 1;
+  story3Drawn.clear();
+  renderStory3(story3ActiveStep());
+}
+
+function setStory3Station(value) {
+  story3State.station = value;
+  const select = document.getElementById('story3-station');
+  if (select) select.value = value;
+  story3Token += 1;
+  story3Drawn.delete('stations');
+  renderStory3(story3ActiveStep());
+}
+
 function activateStep(step) {
   story2Token += 1;
+  story3Token += 1;
   document.querySelectorAll('.step').forEach((el) => el.classList.remove('is-active'));
   step.classList.add('is-active');
   const story = step.dataset.story;
   // Stories 1 and 4 have no verified station coordinates, so the map is hidden to give the charts more room.
   const isStory1 = story === 'story1';
   const isStory2 = story === 'story2';
+  const isStory3 = story === 'story3';
   const isStory4 = story === 'story4';
   const story2Limits = isStory2 && step.dataset.view === 'limits';
+  const story3Limits = isStory3 && step.dataset.view === 'limits';
   if (!isStory2) story2SharedView = null;
-  // Story 2 no longer shows the decorative reference map; its station-comparison view uses a taller chart.
-  mapEl.hidden = isStory1 || isStory2 || isStory4;
-  vizEl.classList.toggle('viz-panel--inline', isStory2);
+  // Stories 1, 2, 3 and 4 hide the decorative reference map; the intro keeps it.
+  mapEl.hidden = isStory1 || isStory2 || isStory3 || isStory4;
+  vizEl.classList.toggle('viz-panel--inline', isStory2 || isStory3);
   const wasChartHidden = chartEl.hidden;
-  chartEl.hidden = story2Limits;
+  chartEl.hidden = story2Limits || story3Limits;
   validationEl.hidden = !story2Limits;
+  story3ValidationEl.hidden = !story3Limits;
   if (wasChartHidden && !chartEl.hidden && chartEl.data) Plotly.Plots.resize(chartEl);
-  chartEl.classList.toggle('chart--tall', isStory1 || isStory4 || (isStory2 && step.dataset.view === 'stations'));
+  chartEl.classList.toggle('chart--tall', isStory1 || isStory4 || (isStory2 && step.dataset.view === 'stations') || (isStory3 && (step.dataset.view === 'monthly' || step.dataset.view === 'stations')));
   if (!mapEl.hidden && map) map.invalidateSize();
   if (story === 'story1') return renderStory1();
   if (story === 'story2') return renderStory2(step);
-  if (story === 'story3') return renderStory3();
+  if (story === 'story3') return renderStory3(step);
   if (story === 'story4') return renderStory4();
   setStatus('Intro: inspect repository data first, then run preprocessing scripts.');
   renderPlaceholder('Hong Kong Air Pollution Data Storytelling', 'Scroll to enter story sections.');
@@ -1130,8 +2134,9 @@ function activateStep(step) {
 STORY2_MOBILE.addEventListener('change', () => {
   story2SharedView = null;
   story2InlineDrawn.clear();
+  story3Drawn.clear();
   const active = document.querySelector('.step.is-active');
-  if (active && active.dataset.story === 'story2') activateStep(active);
+  if (active && (active.dataset.story === 'story2' || active.dataset.story === 'story3')) activateStep(active);
 });
 
 function initObserver() {
@@ -1145,15 +2150,20 @@ function initObserver() {
   // so Story 1 activates when it crosses a band across the middle of the viewport instead.
   const story1Observer = new IntersectionObserver(onIntersect, { threshold: 0, rootMargin: '-45% 0px -45% 0px' });
 
-  // Story 1 and Story 2 steps are taller than the 45% threshold allows, so they use the middle-band observer.
+  // Story 1, 2 and 3 steps are taller than the 45% threshold allows, so they use the middle-band observer.
   document.querySelectorAll('.step').forEach((step) => {
-    const useBand = step.dataset.story === 'story1' || step.dataset.story === 'story2';
+    const useBand = ['story1', 'story2', 'story3'].includes(step.dataset.story);
     (useBand ? story1Observer : observer).observe(step);
   });
 }
 
 window.addEventListener('DOMContentLoaded', () => {
   ensureMap();
+  document.querySelectorAll('.story3-pollutant').forEach((el) => {
+    el.addEventListener('change', () => setStory3Pollutant(el.value));
+  });
+  const stationSelect = document.getElementById('story3-station');
+  if (stationSelect) stationSelect.addEventListener('change', () => setStory3Station(stationSelect.value));
   initObserver();
   const intro = document.querySelector('.step[data-story="intro"]');
   if (intro) activateStep(intro);
