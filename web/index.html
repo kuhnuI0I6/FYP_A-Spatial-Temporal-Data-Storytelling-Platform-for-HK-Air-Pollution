@@ -102,10 +102,8 @@
         </article>
 
         <article class="step" data-story="story2" data-view="rhythm">
-          <h2>Story 2 — Daily NO₂ Rhythm</h2>
-          <p class="story-question">
-            At what times of day is NO₂ highest, and does the daily pattern look different on weekdays and weekends?
-          </p>
+          <p class="story2-stage">Story 2 · Stage 1 of 4</p>
+          <h2>When during the day is NO₂ highest, and does that change on weekends?</h2>
           <p>
             Nitrogen dioxide (NO₂) is a gas linked to fuel combustion, including vehicle exhaust. This story uses hourly NO₂ records from the 18 monitoring stations in the project dataset (2020–2025).
             Each station's readings are first averaged for each hour and day type, then combined across stations.
@@ -116,13 +114,17 @@
             Missing readings are left out, never counted as zero.
           </p>
           <p class="note" id="story2-rhythm-note"></p>
+          <div id="story2-inline-rhythm" class="story2-inline"></div>
+          <div class="finding story2-takeaway">
+            <p class="finding-label">Key takeaway</p>
+            <p id="story2-rhythm-takeaway"></p>
+          </div>
+          <p class="story2-bridge">Next: the same hours, compared directly as weekday minus weekend.</p>
         </article>
 
         <article class="step" data-story="story2" data-view="gap">
-          <h2>Story 2 — Weekday Minus Weekend, Hour by Hour</h2>
-          <p class="story-question">
-            Is the weekday–weekend difference the same at every hour, or does it change through the day?
-          </p>
+          <p class="story2-stage">Story 2 · Stage 2 of 4</p>
+          <h2>Is the weekday–weekend gap the same at every hour?</h2>
           <p>
             For each station and hour, the weekend average is subtracted from the weekday average, so a positive value means weekdays were higher.
             The line is the median of these differences across stations that qualify on both day types, and the band is the 25th–75th percentile range.
@@ -130,27 +132,42 @@
           <p>
             This is a descriptive comparison. Weekdays and weekends differ in many ways, so the difference is not attributed to any single cause.
           </p>
+          <p class="story2-distinction">
+            <strong>Two different statistics.</strong> The line is the median of station-level differences. It is not the same as the difference between the citywide weekday and weekend medians from Stage 1. The takeaway below compares the two at the largest-gap hour.
+          </p>
+          <p class="story2-legend note">
+            <span class="swatch swatch--weekday" aria-hidden="true"></span> Teal: weekday higher
+            <span class="swatch swatch--weekend" aria-hidden="true"></span> Purple: weekend higher
+          </p>
           <p class="note" id="story2-gap-note"></p>
+          <div id="story2-inline-gap" class="story2-inline"></div>
+          <div class="finding story2-takeaway">
+            <p class="finding-label">Key takeaway</p>
+            <p id="story2-gap-takeaway"></p>
+          </div>
+          <p class="story2-bridge">Next: the same comparison, station by station.</p>
         </article>
 
         <article class="step" data-story="story2" data-view="stations">
-          <h2>Story 2 — Station Comparison</h2>
-          <p class="story-question">
-            Do stations show similar weekday and weekend averages, and which stations need cautious reading?
-          </p>
+          <p class="story2-stage">Story 2 · Stage 3 of 4</p>
+          <h2>Do stations differ, and which ones need cautious reading?</h2>
           <p>
             Each bar is a station's average across its qualifying hours on each day type. Stations are sorted by weekday average.
             The table shows how many valid observations support each average. No station has been removed or merged.
           </p>
           <p class="note" id="story2-station-note"></p>
+          <div id="story2-inline-stations" class="story2-inline"></div>
+          <div class="finding story2-takeaway">
+            <p class="finding-label">Key takeaway</p>
+            <p id="story2-station-takeaway"></p>
+          </div>
           <div id="story2-station-table" class="story2-scroll"></div>
+          <p class="story2-bridge">Last: what these patterns cannot show.</p>
         </article>
 
         <article class="step" data-story="story2" data-view="limits">
-          <h2>Story 2 — Limitations and What This Does Not Show</h2>
-          <p class="story-question">
-            How far can these patterns be trusted, and what can they not tell us?
-          </p>
+          <p class="story2-stage">Story 2 · Stage 4 of 4</p>
+          <h2>What can these patterns not tell us?</h2>
           <ul class="story2-limits">
             <li>This is observational data. The patterns are associations and do not show that traffic or any other factor causes the NO₂ levels.</li>
             <li>No traffic data is used. There is no verified mapping between traffic detectors and monitoring stations, so no traffic link is made.</li>
@@ -160,6 +177,7 @@
             <li>Station coverage differs. NORTH and SOUTHERN weekday data start in July 2020, and TAP_MUN has unusually low values. CENTRAL and CENTRAL/WESTERN are kept as separate series and have not been verified as duplicates.</li>
           </ul>
           <p class="note">The counts in the panel are read from output/analysis/story2/story2_validation_summary.json.</p>
+          <div id="story2-inline-limits" class="story2-inline"></div>
         </article>
 
         <article class="step" data-story="story3">
@@ -212,6 +230,7 @@
       <section class="viz-panel">
         <div id="status" class="status"></div>
         <div id="chart" class="chart"></div>
+        <div id="story2-validation" class="story2-validation" hidden></div>
         <div id="map" class="map"></div>
       </section>
     </main>

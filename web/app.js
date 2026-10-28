@@ -1,6 +1,12 @@
 const statusEl = document.getElementById('status');
 const chartEl = document.getElementById('chart');
 const mapEl = document.getElementById('map');
+const vizEl = document.querySelector('.viz-panel');
+const validationEl = document.getElementById('story2-validation');
+const STORY2_MOBILE = window.matchMedia('(max-width: 900px)');
+let story2Token = 0;
+let story2SharedView = null;
+const story2InlineDrawn = new Set();
 
 let map;
 
@@ -454,8 +460,60 @@ function story2Layout(extra) {
   };
 }
 
-function renderStory2Rhythm(city, validation) {
+function story2Plot(target, traces, layout) {
+  Plotly.react(target, traces, story2Layout(layout), { responsive: true });
+}
+
+function story2Hour(hour) {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
+function story2Signed(value) {
+  return `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
+}
+
+function story2Extreme(rows, key, sign) {
+  const valid = rows.filter((r) => story2Num(r[key]) !== null);
+  if (!valid.length) return null;
+  return valid.reduce((a, b) => (sign * (story2Num(b[key]) - story2Num(a[key])) > 0 ? b : a));
+}
+
+function story2InWindow(rows, key, [lo, hi]) {
+  return story2Extreme(rows.filter((r) => Number(r.hour) >= lo && Number(r.hour) <= hi), key, 1);
+}
+
+function story2Message(target, message) {
+  target.replaceChildren();
+  const p = document.createElement('p');
+  p.className = 'story2-message';
+  p.textContent = message;
+  target.appendChild(p);
+}
+
+const STORY2_MORNING = [6, 10];
+const STORY2_EVENING = [16, 21];
+
+function story2RhythmPeakNote(row, prefix, color, ay) {
+  return {
+    x: Number(row.hour),
+    y: story2Num(row.median_no2),
+    xref: 'x',
+    yref: 'y',
+    text: `${prefix} ${story2Hour(row.hour)}: ${story2Num(row.median_no2).toFixed(1)}`,
+    showarrow: true,
+    arrowhead: 0,
+    arrowwidth: 1,
+    arrowcolor: color,
+    ax: 0,
+    ay,
+    font: { size: 11, color },
+    bgcolor: 'rgba(255,255,255,0.85)',
+  };
+}
+
+function renderStory2Rhythm(city, validation, target) {
   const traces = [];
+  const annotations = [];
   const peaks = {};
   const stationCounts = [];
   [
@@ -476,63 +534,135 @@ function renderStory2Rhythm(city, validation) {
       customdata: rows.map((r) => r.n_stations),
       hovertemplate: `${label} %{x}:00<br>Median %{y:.1f}<br>Stations: %{customdata}<extra></extra>`,
     });
-    const valid = rows.filter((r) => story2Num(r.median_no2) !== null);
-    if (valid.length) {
-      const high = valid.reduce((a, b) => (story2Num(b.median_no2) > story2Num(a.median_no2) ? b : a));
-      const low = valid.reduce((a, b) => (story2Num(b.median_no2) < story2Num(a.median_no2) ? b : a));
-      peaks[key] = { label, high, low };
-    }
+    const morning = story2InWindow(rows, 'median_no2', STORY2_MORNING);
+    const evening = story2InWindow(rows, 'median_no2', STORY2_EVENING);
+    peaks[key] = { label, morning, evening };
+    if (morning) annotations.push(story2RhythmPeakNote(morning, `${label} morning`, color, key === 'weekday' ? -30 : 30));
+    if (evening) annotations.push(story2RhythmPeakNote(evening, `${label} evening`, color, key === 'weekday' ? -30 : 30));
     rows.forEach((r) => { if (story2Num(r.n_stations) !== null) stationCounts.push(Number(r.n_stations)); });
   });
 
-  Plotly.newPlot(chartEl, traces, story2Layout({
+  story2Plot(target, traces, {
     title: 'Median NO₂ by hour of day (across qualifying stations)',
     xaxis: { title: 'Hour of day (0–23)', dtick: 3 },
     yaxis: { title: 'NO₂ (units as recorded; not verified)' },
-  }), { responsive: true });
+    annotations,
+  });
 
-  const sentences = Object.values(peaks).map((p) =>
-    `${p.label} median is highest at ${p.high.hour}:00 (${story2Num(p.high.median_no2).toFixed(1)}) and lowest at ${p.low.hour}:00 (${story2Num(p.low.median_no2).toFixed(1)}).`);
   const counts = validation?.qualifying_cells_by_day_type;
   const countText = counts
     ? `Qualifying station-hour cells (at least 50% of expected days): ${counts.weekday} weekday and ${counts.weekend} weekend.`
     : '';
   const range = stationCounts.length ? `Stations per hour: ${Math.min(...stationCounts)} to ${Math.max(...stationCounts)}.` : '';
-  document.getElementById('story2-rhythm-note').textContent = [...sentences, countText, range].filter(Boolean).join(' ');
+  document.getElementById('story2-rhythm-note').textContent = [countText, range].filter(Boolean).join(' ');
+  renderStory2RhythmTakeaway(peaks);
 }
 
-function renderStory2Gap(diffRows) {
+function renderStory2RhythmTakeaway(peaks) {
+  const wd = peaks.weekday;
+  const we = peaks.weekend;
+  const span = ([lo, hi]) => `${story2Hour(lo)}–${story2Hour(hi)}`;
+  const peak = (p) => `${story2Hour(p.hour)} (${story2Num(p.median_no2).toFixed(1)})`;
+  const sentences = [];
+  if (wd.evening && wd.morning) {
+    sentences.push(`Weekday peaks: ${peak(wd.morning)} in ${span(STORY2_MORNING)} and ${peak(wd.evening)} in ${span(STORY2_EVENING)}.`);
+  }
+  if (we.evening && we.morning && wd.morning) {
+    const gap = story2Num(wd.morning.median_no2) - story2Num(we.morning.median_no2);
+    const comparison = gap >= 0 ? `${gap.toFixed(1)} lower` : `${Math.abs(gap).toFixed(1)} higher`;
+    sentences.push(`Weekend: ${peak(we.morning)} morning, ${peak(we.evening)} evening; the morning peak is ${comparison} than on weekdays.`);
+  }
+  const body = sentences.length ? sentences.join(' ') : 'Peak values are not available in the Story 2 hourly profile.';
+  document.getElementById('story2-rhythm-takeaway').textContent = body;
+}
+
+function story2GapAnnotation(row, text, color, ay) {
+  return {
+    x: Number(row.hour),
+    y: story2Num(row.median_difference),
+    xref: 'x',
+    yref: 'y',
+    text,
+    showarrow: true,
+    arrowhead: 0,
+    arrowwidth: 1,
+    arrowcolor: color,
+    ax: 0,
+    ay,
+    font: { size: 11, color },
+    bgcolor: 'rgba(255,255,255,0.85)',
+  };
+}
+
+function story2CitywideDifference(city, hour) {
+  const pick = (dayType) => city.find((r) => r.day_type === dayType && Number(r.hour) === hour);
+  const wd = pick('weekday');
+  const we = pick('weekend');
+  if (!wd || !we) return null;
+  const a = story2Num(wd.median_no2);
+  const b = story2Num(we.median_no2);
+  return a === null || b === null ? null : a - b;
+}
+
+function renderStory2Gap(diffRows, city, target) {
   const rows = sortByHour(diffRows);
   const x = rows.map((r) => Number(r.hour));
   const median = rows.map((r) => story2Num(r.median_difference));
   const total = median.filter((v) => v !== null).length;
   const weekdayHigher = median.filter((v) => v !== null && v > 0).length;
-  const weekendHigher = median.filter((v) => v !== null && v < 0).length;
+  const weekendHigherHours = rows.filter((r) => story2Num(r.median_difference) !== null && story2Num(r.median_difference) < 0).map((r) => story2Hour(r.hour));
   const pairs = rows.map((r) => story2Num(r.n_station_pairs)).filter((v) => v !== null);
+  const top = story2Extreme(rows, 'median_difference', 1);
+  const bottom = story2Extreme(rows, 'median_difference', -1);
 
-  Plotly.newPlot(chartEl, [
+  const annotations = [];
+  if (top) annotations.push(story2GapAnnotation(top, `Largest weekday-higher gap ${story2Hour(top.hour)} (${story2Signed(story2Num(top.median_difference))})`, STORY2_COLORS.weekday, -30));
+  if (bottom) annotations.push(story2GapAnnotation(bottom, `Largest weekend-higher gap ${story2Hour(bottom.hour)} (${story2Signed(story2Num(bottom.median_difference))})`, STORY2_COLORS.weekend, 30));
+
+  const bandValues = [
+    ...median,
+    ...rows.map((r) => story2Num(r.p25_difference)),
+    ...rows.map((r) => story2Num(r.p75_difference)),
+  ].filter((v) => v !== null);
+  const lo = Math.min(...bandValues);
+  const hi = Math.max(...bandValues);
+  const pad = hi - lo;
+
+  story2Plot(target, [
     { x, y: rows.map((r) => story2Num(r.p75_difference)), mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false },
     { x, y: rows.map((r) => story2Num(r.p25_difference)), mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: STORY2_COLORS.neutralFill, hoverinfo: 'skip', showlegend: false },
     {
       x,
       y: median,
       mode: 'lines+markers',
-      name: 'Median difference',
+      name: 'Median station difference',
       line: { color: STORY2_COLORS.neutral },
-      marker: { color: STORY2_COLORS.neutral },
+      marker: { color: median.map((v) => (v !== null && v < 0 ? STORY2_COLORS.weekend : STORY2_COLORS.weekday)), size: 7 },
       customdata: rows.map((r) => r.n_station_pairs),
-      hovertemplate: 'Hour %{x}:00<br>Median difference %{y:.2f}<br>Station pairs: %{customdata}<extra></extra>',
+      hovertemplate: 'Hour %{x}:00<br>Median station difference %{y:.2f}<br>Station pairs: %{customdata}<extra></extra>',
     },
-  ], story2Layout({
-    title: 'Weekday minus weekend NO₂ (positive = weekday higher)',
+  ], {
+    title: 'Weekday minus weekend NO₂ (teal = weekday higher, purple = weekend higher)',
     xaxis: { title: 'Hour of day (0–23)', dtick: 3 },
-    yaxis: { title: 'Difference (units as recorded; not verified)', zeroline: true },
+    yaxis: { title: 'Difference (units as recorded; not verified)', zeroline: true, range: [lo - 0.3 * pad, hi + 0.1 * pad] },
     shapes: [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 0, y1: 0, line: { color: '#333', dash: 'dot', width: 1 } }],
-  }), { responsive: true });
+    annotations,
+  });
 
   const pairRange = pairs.length ? `Station pairs per hour: ${Math.min(...pairs)} to ${Math.max(...pairs)}.` : '';
   document.getElementById('story2-gap-note').textContent =
-    `Across ${total} hours, the median station difference was positive (weekday higher) in ${weekdayHigher} hours and negative (weekend higher) in ${weekendHigher}. ${pairRange}`;
+    `Across ${total} hours, the median station difference was positive (weekday higher) in ${weekdayHigher} hours and negative (weekend higher) in ${weekendHigherHours.length}${weekendHigherHours.length ? `: ${weekendHigherHours.join(', ')}` : ''}. ${pairRange}`;
+
+  const sentences = [];
+  if (top) {
+    const cityDiff = story2CitywideDifference(city, Number(top.hour));
+    const cityText = cityDiff === null ? '' : ` The difference between the citywide weekday and weekend medians at that hour is ${story2Signed(cityDiff)}; that is a different statistic from the median of station differences.`;
+    sentences.push(`At ${story2Hour(top.hour)}, the median station difference is ${story2Signed(story2Num(top.median_difference))}.${cityText}`);
+  }
+  if (bottom && story2Num(bottom.median_difference) < 0) {
+    sentences.push(`The largest weekend-higher value is at ${story2Hour(bottom.hour)} (${story2Signed(story2Num(bottom.median_difference))}).`);
+  }
+  document.getElementById('story2-gap-takeaway').textContent = sentences.join(' ') || 'No hourly difference is available.';
 }
 
 function story2BuildTable(container, headers, rows) {
@@ -551,77 +681,164 @@ function story2BuildTable(container, headers, rows) {
     const tr = tbody.insertRow();
     cells.forEach((value) => {
       const td = tr.insertCell();
-      td.textContent = value;
+      td.append(value);
     });
   });
   container.appendChild(table);
 }
 
-function renderStory2Stations(stations) {
-  const rows = [...stations].sort((a, b) => (story2Num(b.weekday_qualifying_mean) ?? -Infinity) - (story2Num(a.weekday_qualifying_mean) ?? -Infinity));
-  const ids = rows.map((r) => r.station_id);
+function story2StationLabel(row) {
+  return row.station_id.replace(/_/g, ' ');
+}
 
-  Plotly.newPlot(chartEl, [
+function story2StationFlags(row) {
+  const flags = [];
+  if (row.low_mean_flag === 'True') flags.push({ text: 'low mean', cls: 'low' });
+  if (row.coverage_start_flag === 'True') flags.push({ text: 'late start', cls: 'late' });
+  if (row.name_overlap_flag === 'True') flags.push({ text: 'name overlap', cls: 'overlap' });
+  return flags;
+}
+
+function story2FlagBadges(flags) {
+  if (!flags.length) return '—';
+  const fragment = document.createDocumentFragment();
+  flags.forEach((f) => {
+    const badge = document.createElement('span');
+    badge.className = `story2-flag story2-flag--${f.cls}`;
+    badge.textContent = f.text;
+    fragment.append(badge, ' ');
+  });
+  return fragment;
+}
+
+function renderStory2StationTakeaway(rows) {
+  const means = rows.filter((r) => story2Num(r.weekday_qualifying_mean) !== null);
+  const high = story2Extreme(means, 'weekday_qualifying_mean', 1);
+  const low = story2Extreme(means, 'weekday_qualifying_mean', -1);
+  const sentences = [];
+  if (high && low) {
+    sentences.push(`Weekday qualifying means range from ${story2StationLabel(low)} (${story2Num(low.weekday_qualifying_mean).toFixed(1)}) to ${story2StationLabel(high)} (${story2Num(high.weekday_qualifying_mean).toFixed(1)}).`);
+  }
+  const names = (key) => rows.filter((r) => r[key] === 'True').map(story2StationLabel);
+  const lowMean = names('low_mean_flag');
+  const lateStart = names('coverage_start_flag');
+  const overlap = names('name_overlap_flag');
+  if (lowMean.length) {
+    sentences.push(`${lowMean.join(', ')} ${lowMean.length === 1 ? 'is' : 'are'} flagged for a low mean (below half the median station mean).`);
+  }
+  if (lateStart.length) {
+    sentences.push(`${lateStart.join(', ')} ${lateStart.length === 1 ? 'has' : 'have'} a late coverage start.`);
+  }
+  if (overlap.length) {
+    sentences.push(`${overlap.join(' and ')} share a name base and are kept as separate series; they are not verified as duplicates.`);
+  }
+  sentences.push('Flagged stations are reported as observed, not treated as errors. No station has been removed or merged.');
+  document.getElementById('story2-station-takeaway').textContent = sentences.join(' ');
+}
+
+function renderStory2Stations(stations, target) {
+  const rows = [...stations].sort((a, b) => (story2Num(b.weekday_qualifying_mean) ?? -Infinity) - (story2Num(a.weekday_qualifying_mean) ?? -Infinity));
+  const flagged = (r) => story2StationFlags(r).map((f) => f.text);
+  const labels = rows.map((r) => (story2StationFlags(r).length ? `${story2StationLabel(r)} *` : story2StationLabel(r)));
+
+  story2Plot(target, [
     {
       type: 'bar',
       orientation: 'h',
       name: 'Weekday',
-      y: ids,
+      y: labels,
       x: rows.map((r) => story2Num(r.weekday_qualifying_mean)),
       marker: { color: STORY2_COLORS.weekday },
-      customdata: rows.map((r) => [r.weekday_valid_obs, r.weekday_qualifying_hours]),
-      hovertemplate: '%{y}<br>Weekday mean %{x:.1f}<br>Valid observations: %{customdata[0]}<br>Qualifying hours: %{customdata[1]}<extra></extra>',
+      customdata: rows.map((r) => [r.weekday_valid_obs, r.weekday_qualifying_hours, flagged(r).join(', ') || 'none']),
+      hovertemplate: '%{y}<br>Weekday mean %{x:.1f}<br>Valid observations: %{customdata[0]}<br>Qualifying hours: %{customdata[1]}<br>Flags: %{customdata[2]}<extra></extra>',
     },
     {
       type: 'bar',
       orientation: 'h',
       name: 'Weekend',
-      y: ids,
+      y: labels,
       x: rows.map((r) => story2Num(r.weekend_qualifying_mean)),
       marker: { color: STORY2_COLORS.weekend },
-      customdata: rows.map((r) => [r.weekend_valid_obs, r.weekend_qualifying_hours]),
-      hovertemplate: '%{y}<br>Weekend mean %{x:.1f}<br>Valid observations: %{customdata[0]}<br>Qualifying hours: %{customdata[1]}<extra></extra>',
+      customdata: rows.map((r) => [r.weekend_valid_obs, r.weekend_qualifying_hours, flagged(r).join(', ') || 'none']),
+      hovertemplate: '%{y}<br>Weekend mean %{x:.1f}<br>Valid observations: %{customdata[0]}<br>Qualifying hours: %{customdata[1]}<br>Flags: %{customdata[2]}<extra></extra>',
     },
-  ], story2Layout({
-    title: 'Mean NO₂ by station (qualifying hours only)',
+  ], {
+    title: 'Mean NO₂ by station (qualifying hours only; * = flagged)',
     barmode: 'group',
     xaxis: { title: 'Mean NO₂ (units as recorded; not verified)' },
-    yaxis: { autorange: 'reversed' },
-    margin: { t: 50, r: 20, b: 60, l: 110 },
-  }), { responsive: true });
+    yaxis: { autorange: 'reversed', tickfont: { size: 12 }, automargin: true },
+    margin: { t: 50, r: 20, b: 60, l: 180 },
+  });
 
-  const flagged = (key) => rows.filter((r) => r[key] === 'True').map((r) => r.station_id);
-  const lowMean = flagged('low_mean_flag');
-  const lateStart = flagged('coverage_start_flag');
-  const overlap = flagged('name_overlap_flag');
+  const flagNames = (key) => rows.filter((r) => r[key] === 'True').map(story2StationLabel);
   document.getElementById('story2-station-note').textContent = [
-    `Stations with a low mean (below half the median station mean): ${lowMean.join(', ') || 'none'}.`,
-    `Stations with a late coverage start: ${lateStart.join(', ') || 'none'}.`,
-    `Stations whose names share a base (kept as separate series, not verified as duplicates): ${overlap.join(', ') || 'none'}.`,
+    `Stations with a low mean (below half the median station mean): ${flagNames('low_mean_flag').join(', ') || 'none'}.`,
+    `Stations with a late coverage start: ${flagNames('coverage_start_flag').join(', ') || 'none'}.`,
+    `Stations whose names share a base (kept as separate series, not verified as duplicates): ${flagNames('name_overlap_flag').join(', ') || 'none'}.`,
   ].join(' ');
 
   story2BuildTable(
     document.getElementById('story2-station-table'),
     ['Station', 'Weekday valid obs', 'Weekend valid obs', 'Weekday qualifying hours', 'Weekend qualifying hours', 'Flags'],
-    rows.map((r) => {
-      const notes = [];
-      if (r.low_mean_flag === 'True') notes.push('low mean');
-      if (r.coverage_start_flag === 'True') notes.push('late start');
-      if (r.name_overlap_flag === 'True') notes.push('name overlap');
-      return [r.station_id, r.weekday_valid_obs, r.weekend_valid_obs, r.weekday_qualifying_hours, r.weekend_qualifying_hours, notes.join(', ') || '—'];
-    }),
+    rows.map((r) => [
+      story2StationLabel(r),
+      r.weekday_valid_obs,
+      r.weekend_valid_obs,
+      r.weekday_qualifying_hours,
+      r.weekend_qualifying_hours,
+      story2FlagBadges(story2StationFlags(r)),
+    ]),
   );
+  renderStory2StationTakeaway(rows);
 }
 
-function renderStory2Limits(validation) {
+function story2Count(value) {
+  return value === undefined || value === null ? 'n/a' : Number(value).toLocaleString('en-GB');
+}
+
+function renderStory2Limits(validation, target) {
+  target.replaceChildren();
   if (!validation) {
-    renderPlaceholder('Story 2 — Validation counts', 'Story 2 validation summary not found in output/analysis/story2/.');
+    story2Message(target, 'Story 2 validation summary not found in output/analysis/story2/.');
     return;
   }
   const load = validation.load ?? {};
   const dedupe = validation.deduplication ?? {};
   const cmp = validation.comparison_with_existing_csv ?? {};
   const counts = validation.qualifying_cells_by_day_type ?? {};
+
+  const indicators = document.createElement('div');
+  indicators.className = 'story2-indicators';
+  [
+    [story2Count(validation.stations), 'monitoring stations'],
+    [story2Count(validation.station_hour_day_type_cells), 'station × hour × day-type cells'],
+    [`${story2Count(counts.weekday)} / ${story2Count(counts.weekend)}`, 'qualifying cells, weekday / weekend (≥50% of expected days)'],
+    [story2Count(cmp.valid_obs_mismatches), 'valid-observation count mismatches with the existing CSV'],
+  ].forEach(([value, label]) => {
+    const card = document.createElement('div');
+    card.className = 'story2-indicator';
+    const big = document.createElement('span');
+    big.className = 'story2-indicator-value';
+    big.textContent = value;
+    const text = document.createElement('span');
+    text.className = 'story2-indicator-label';
+    text.textContent = label;
+    card.append(big, text);
+    indicators.appendChild(card);
+  });
+
+  const usage = document.createElement('p');
+  usage.className = 'story2-usage';
+  usage.textContent = `NO₂ rows used: ${story2Count(load.usable_rows)} of ${story2Count(load.no2_rows)}. ${story2Count(load.missing_or_nonnumeric_value_rows)} missing or non-numeric values were excluded, not treated as zero.`;
+
+  const details = document.createElement('details');
+  details.className = 'story2-details';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Full technical validation table';
+  details.append(summary);
+  const tableHost = document.createElement('div');
+  tableHost.className = 'story2-scroll';
+  details.appendChild(tableHost);
   const labels = [
     'Stations',
     'Station × hour × day-type cells',
@@ -648,15 +865,15 @@ function renderStory2Limits(validation) {
     cmp.matched_cells,
     cmp.valid_obs_mismatches,
   ].map((v) => (v === undefined || v === null ? 'n/a' : String(v)));
-  Plotly.newPlot(chartEl, [{
-    type: 'table',
-    header: { values: ['Check', 'Value'], align: 'left' },
-    cells: { values: [labels, values], align: 'left' },
-  }], story2Layout({ title: 'Story 2 data checks (from story2_validation_summary.json)' }), { responsive: true });
+  story2BuildTable(tableHost, ['Check', 'Value'], labels.map((label, i) => [label, values[i]]));
+
+  target.append(indicators, usage, details);
 }
 
 async function renderStory2(step) {
   const view = step.dataset.view;
+  const token = story2Token;
+  const mobile = STORY2_MOBILE.matches;
   const statusText = {
     rhythm: 'Story 2: median NO₂ by hour, weekday and weekend, across qualifying stations.',
     gap: 'Story 2: weekday minus weekend NO₂ difference by hour.',
@@ -664,20 +881,28 @@ async function renderStory2(step) {
     limits: 'Story 2: data checks and limitations.',
   };
   setStatus(statusText[view] ?? 'Story 2');
+  if (mobile ? story2InlineDrawn.has(view) : story2SharedView === view) return;
   const [city, diff, stations, validation] = await loadStory2();
-  if (view === 'rhythm') {
-    if (!city.length) return renderPlaceholder('Story 2 — Daily NO₂ rhythm', 'Story 2 outputs not found in output/analysis/story2/.');
-    return renderStory2Rhythm(city, validation);
+  if (token !== story2Token) return;
+  const target = mobile ? document.getElementById(`story2-inline-${view}`) : view === 'limits' ? validationEl : chartEl;
+  const titles = {
+    rhythm: 'Story 2 — Daily NO₂ rhythm',
+    gap: 'Story 2 — Weekday minus weekend',
+    stations: 'Story 2 — Station comparison',
+  };
+  const empty = view === 'rhythm' ? !city.length : view === 'gap' ? !diff.length : view === 'stations' ? !stations.length : false;
+  if (empty) {
+    const message = 'Story 2 outputs not found in output/analysis/story2/.';
+    if (target === chartEl) renderPlaceholder(titles[view], message);
+    else story2Message(target, message);
+    return;
   }
-  if (view === 'gap') {
-    if (!diff.length) return renderPlaceholder('Story 2 — Weekday minus weekend', 'Story 2 outputs not found in output/analysis/story2/.');
-    return renderStory2Gap(diff);
-  }
-  if (view === 'stations') {
-    if (!stations.length) return renderPlaceholder('Story 2 — Station comparison', 'Story 2 outputs not found in output/analysis/story2/.');
-    return renderStory2Stations(stations);
-  }
-  return renderStory2Limits(validation);
+  if (view === 'rhythm') renderStory2Rhythm(city, validation, target);
+  else if (view === 'gap') renderStory2Gap(diff, city, target);
+  else if (view === 'stations') renderStory2Stations(stations, target);
+  else renderStory2Limits(validation, target);
+  if (mobile) story2InlineDrawn.add(view);
+  else story2SharedView = view;
 }
 
 
@@ -875,6 +1100,7 @@ async function renderStory4() {
 }
 
 function activateStep(step) {
+  story2Token += 1;
   document.querySelectorAll('.step').forEach((el) => el.classList.remove('is-active'));
   step.classList.add('is-active');
   const story = step.dataset.story;
@@ -882,8 +1108,15 @@ function activateStep(step) {
   const isStory1 = story === 'story1';
   const isStory2 = story === 'story2';
   const isStory4 = story === 'story4';
+  const story2Limits = isStory2 && step.dataset.view === 'limits';
+  if (!isStory2) story2SharedView = null;
   // Story 2 no longer shows the decorative reference map; its station-comparison view uses a taller chart.
   mapEl.hidden = isStory1 || isStory2 || isStory4;
+  vizEl.classList.toggle('viz-panel--inline', isStory2);
+  const wasChartHidden = chartEl.hidden;
+  chartEl.hidden = story2Limits;
+  validationEl.hidden = !story2Limits;
+  if (wasChartHidden && !chartEl.hidden && chartEl.data) Plotly.Plots.resize(chartEl);
   chartEl.classList.toggle('chart--tall', isStory1 || isStory4 || (isStory2 && step.dataset.view === 'stations'));
   if (!mapEl.hidden && map) map.invalidateSize();
   if (story === 'story1') return renderStory1();
@@ -893,6 +1126,13 @@ function activateStep(step) {
   setStatus('Intro: inspect repository data first, then run preprocessing scripts.');
   renderPlaceholder('Hong Kong Air Pollution Data Storytelling', 'Scroll to enter story sections.');
 }
+
+STORY2_MOBILE.addEventListener('change', () => {
+  story2SharedView = null;
+  story2InlineDrawn.clear();
+  const active = document.querySelector('.step.is-active');
+  if (active && active.dataset.story === 'story2') activateStep(active);
+});
 
 function initObserver() {
   const onIntersect = (entries) => {

@@ -107,9 +107,92 @@ body {
 .story2-table th { color: var(--muted); font-weight: 600; }
 .story2-limits { padding-left: 1.2rem; }
 
+.story2-stage {
+  margin: 0 0 0.2rem 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.story2-takeaway { margin: 0.8rem 0; }
+.story2-takeaway p:last-child { margin-bottom: 0; }
+.story2-bridge {
+  margin: 1rem 0 0 0;
+  padding-top: 0.6rem;
+  border-top: 1px dashed #dce3f7;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+.story2-distinction {
+  background: #f4f0fb;
+  border-left: 4px solid #805ad5;
+  padding: 0.5rem 0.9rem;
+  border-radius: 4px;
+}
+.story2-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; }
+.swatch {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 2px;
+  margin-right: 0.2rem;
+}
+.swatch--weekday { background: #2c7a7b; }
+.swatch--weekend { background: #805ad5; }
+.story2-message { color: var(--muted); margin: 0.6rem 0; }
+
+.story2-indicators {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+.story2-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 0.8rem;
+  background: #eef3ff;
+  border-radius: 8px;
+}
+.story2-indicator-value { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+.story2-indicator-label { font-size: 0.85rem; color: var(--muted); }
+.story2-usage { font-size: 0.92rem; }
+.story2-details { margin-top: 0.6rem; }
+.story2-details summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+
+.story2-flag {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: #eef1f6;
+  color: var(--text);
+}
+.story2-flag--low { background: #fde8d8; }
+.story2-flag--late { background: #e4f0ff; }
+.story2-flag--overlap { background: #efe8fb; }
+
+.story2-validation[hidden] { display: none; }
+.story2-validation { min-height: 55vh; }
+
+.story2-inline { display: none; }
+
+.step[data-story="story2"] {
+  transition: opacity 0.3s ease, border-color 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step[data-story="story2"] { transition: none; }
+}
+
 @media (max-width: 900px) {
   .scrolly-layout { grid-template-columns: 1fr; }
   .viz-panel { position: relative; min-height: auto; }
   .chart { height: 45vh; }
   .map { height: 35vh; }
+  .viz-panel--inline { display: none; }
+  .story2-inline { display: block; min-height: 340px; margin: 0.6rem 0; }
+  .story2-validation { min-height: 0; }
 }
