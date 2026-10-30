@@ -1,7 +1,9 @@
 const statusEl = document.getElementById('status');
 const chartEl = document.getElementById('chart');
 const mapEl = document.getElementById('map');
+const introMapEl = document.getElementById('intro-map');
 const vizEl = document.querySelector('.viz-panel');
+const introMapSlot = document.getElementById('intro-map-slot');
 const validationEl = document.getElementById('story2-validation');
 const STORY2_MOBILE = window.matchMedia('(max-width: 900px)');
 let story2Token = 0;
@@ -9,6 +11,29 @@ let story2SharedView = null;
 const story2InlineDrawn = new Set();
 
 let map;
+
+// Current government map records, verified against the dataset station IDs.
+const INTRO_STATIONS = [
+  { id: 'CAUSEWAY_BAY', name: 'Causeway Bay Air Quality Monitoring Station', type: 'Roadside', lat: 22.280125, lng: 114.185083, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=TL0EPM2rqu&lg=en' },
+  { id: 'CENTRAL', name: 'Central Air Quality Monitoring Station', type: 'Roadside', lat: 22.281813, lng: 114.158127, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=JXc4IhICMG&lg=en' },
+  { id: 'CENTRAL/WESTERN', name: 'Central/Western Air Quality Monitoring Station', type: 'General', lat: 22.284891, lng: 114.144416, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=staNdR4kMP&lg=en' },
+  { id: 'EASTERN', name: 'Eastern Air Quality Monitoring Station', type: 'General', lat: 22.282883, lng: 114.219366, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=23iGMnvdOS&lg=en' },
+  { id: 'KWAI_CHUNG', name: 'Kwai Chung Air Quality Monitoring Station', type: 'General', lat: 22.357096, lng: 114.129594, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=oWQpjuocoH&lg=en' },
+  { id: 'KWUN_TONG', name: 'Kwun Tong Air Quality Monitoring Station', type: 'General', lat: 22.309620, lng: 114.231166, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=tjF1Tb9jve&lg=en' },
+  { id: 'MONG_KOK', name: 'Mong Kok Air Quality Monitoring Station', type: 'Roadside', lat: 22.322605, lng: 114.168265, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=EQHSEjI0QA&lg=en' },
+  { id: 'NORTH', name: 'North Air Quality Monitoring Station', type: 'General', lat: 22.496697, lng: 114.128244, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=Qfq48JO0D5&lg=en' },
+  { id: 'SHAM_SHUI_PO', name: 'Sham Shui Po Air Quality Monitoring Station', type: 'General', lat: 22.330217, lng: 114.159101, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=kQb1b3wvhS&lg=en' },
+  { id: 'SHATIN', name: 'Sha Tin Air Quality Monitoring Station', type: 'General', lat: 22.376274, lng: 114.184526, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=sQWwIEyWWN&lg=en' },
+  { id: 'SOUTHERN', name: 'Southern Air Quality Monitoring Station', type: 'General', lat: 22.247461, lng: 114.160140, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=JMLh4tvtc5&lg=en' },
+  { id: 'TAI_PO', name: 'Tai Po Air Quality Monitoring Station', type: 'General', lat: 22.450956, lng: 114.164565, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=oqRreEvFO1&lg=en' },
+  { id: 'TAP_MUN', name: 'Tap Mun Air Quality Monitoring Station', type: 'General', lat: 22.471315, lng: 114.360711, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=PkYxtfmMW6&lg=en' },
+  { id: 'TSEUNG_KWAN_O', name: 'Tseung Kwan O Air Quality Monitoring Station', type: 'General', lat: 22.317636, lng: 114.259558, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=W0REQxlUix&lg=en' },
+  { id: 'TSUEN_WAN', name: 'Tsuen Wan Air Quality Monitoring Station', type: 'General', lat: 22.371738, lng: 114.114529, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=zcfw8KcTZh&lg=en' },
+  { id: 'TUEN_MUN', name: 'Tuen Mun Air Quality Monitoring Station', type: 'General', lat: 22.391141, lng: 113.976722, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=6u21kY0wcG&lg=en' },
+  { id: 'TUNG_CHUNG', name: 'Tung Chung Air Quality Monitoring Station', type: 'General', lat: 22.288880, lng: 113.943652, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=Czccuzdsvl&lg=en' },
+  { id: 'YUEN_LONG', name: 'Yuen Long Air Quality Monitoring Station', type: 'General', lat: 22.445148, lng: 114.022644, source: 'https://www.map.gov.hk/mapviewer/map.do?gmid=scowYQ2j3F&lg=en' },
+];
+const introStationBounds = L.latLngBounds(INTRO_STATIONS.map(({ lat, lng }) => [lat, lng]));
 
 async function fetchCsv(path) {
   try {
@@ -35,7 +60,33 @@ function ensureMap() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
   }).addTo(map);
-  L.marker([22.3193, 114.1694]).addTo(map).bindPopup('Hong Kong (reference center)').openPopup();
+  INTRO_STATIONS.forEach((station) => {
+    L.circleMarker([station.lat, station.lng], {
+      radius: 8, color: '#fff', weight: 2.5, fillOpacity: 1, className: 'intro-station-marker',
+      fillColor: station.type === 'General' ? '#2563b8' : '#db6b18',
+    }).bindPopup(`<strong>${station.name}</strong><br>Type: ${station.type}<br>Dataset ID: ${station.id}<br><a href="${station.source}" target="_blank" rel="noopener noreferrer">Government map</a>`).addTo(map);
+  });
+  const legend = L.control({ position: 'bottomright' });
+  legend.onAdd = () => {
+    const el = L.DomUtil.create('div', 'intro-map-legend');
+    el.innerHTML = '<div><span style="background:#2563b8"></span>General</div><div><span style="background:#db6b18"></span>Roadside</div>';
+    return el;
+  };
+  legend.addTo(map);
+}
+
+function refreshIntroMap() {
+  requestAnimationFrame(() => {
+    if (map && !mapEl.hidden) {
+      map.invalidateSize();
+      map.fitBounds(introStationBounds, { paddingTopLeft: [28, 28], paddingBottomRight: [28, 85], maxZoom: 12 });
+    }
+  });
+}
+
+function positionIntroMap() {
+  (STORY2_MOBILE.matches ? introMapSlot : vizEl).appendChild(introMapEl);
+  refreshIntroMap();
 }
 
 function setStatus(text) {
@@ -2138,6 +2189,7 @@ function activateStep(step) {
   document.querySelectorAll('.step').forEach((el) => el.classList.remove('is-active'));
   step.classList.add('is-active');
   const story = step.dataset.story;
+  const isIntro = story === 'intro';
   // Stories 1 and 4 have no verified station coordinates, so the map is hidden to give the charts more room.
   const isStory1 = story === 'story1';
   const isStory2 = story === 'story2';
@@ -2146,31 +2198,35 @@ function activateStep(step) {
   const story2Limits = isStory2 && step.dataset.view === 'limits';
   const story3Limits = isStory3 && step.dataset.view === 'limits';
   if (!isStory2) story2SharedView = null;
-  // Stories 1, 2, 3 and 4 hide the decorative reference map; the intro keeps it.
-  mapEl.hidden = isStory1 || isStory2 || isStory3 || isStory4;
+  // Show the station map only during the intro.
+  mapEl.hidden = !isIntro;
+  introMapEl.hidden = !isIntro;
+  vizEl.classList.toggle('viz-panel--intro', isIntro);
   vizEl.classList.toggle('viz-panel--inline', isStory2 || isStory3);
+  statusEl.hidden = isIntro;
   const wasChartHidden = chartEl.hidden;
-  chartEl.hidden = story2Limits || story3Limits;
+  chartEl.hidden = isIntro || story2Limits || story3Limits;
   validationEl.hidden = !story2Limits;
   story3ValidationEl.hidden = !story3Limits;
   if (wasChartHidden && !chartEl.hidden && chartEl.data) Plotly.Plots.resize(chartEl);
   chartEl.classList.toggle('chart--tall', isStory1 || isStory4 || (isStory2 && step.dataset.view === 'stations') || (isStory3 && (step.dataset.view === 'monthly' || step.dataset.view === 'stations')));
-  if (!mapEl.hidden && map) map.invalidateSize();
+  if (isIntro) refreshIntroMap();
   if (story === 'story1') return renderStory1();
   if (story === 'story2') return renderStory2(step);
   if (story === 'story3') return renderStory3(step);
   if (story === 'story4') return renderStory4();
-  setStatus('Intro: inspect repository data first, then run preprocessing scripts.');
-  renderPlaceholder('Hong Kong Air Pollution Data Storytelling', 'Scroll to enter story sections.');
 }
 
 STORY2_MOBILE.addEventListener('change', () => {
+  positionIntroMap();
   story2SharedView = null;
   story2InlineDrawn.clear();
   story3Drawn.clear();
   const active = document.querySelector('.step.is-active');
   if (active && (active.dataset.story === 'story2' || active.dataset.story === 'story3')) activateStep(active);
 });
+
+window.addEventListener('resize', refreshIntroMap);
 
 function initObserver() {
   const onIntersect = (entries) => {
@@ -2191,6 +2247,7 @@ function initObserver() {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+  positionIntroMap();
   ensureMap();
   document.querySelectorAll('.story3-pollutant').forEach((el) => {
     el.addEventListener('change', () => setStory3Pollutant(el.value));
