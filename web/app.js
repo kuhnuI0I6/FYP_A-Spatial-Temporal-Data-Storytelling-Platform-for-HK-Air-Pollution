@@ -1311,14 +1311,14 @@ function renderStory3Monthly(model, target) {
   const lo = Math.min(...values);
   const hi = Math.max(...values);
   const annotations = [];
-  STORY3_MONTHS.forEach((name, mi) => years.forEach((year, yi) => {
+  STORY3_MONTHS.forEach((name, mi) => years.forEach((_, yi) => {
     const c = m.table[yi][mi];
     if (!c) return;
     const t = hi > lo ? (c.mean - lo) / (hi - lo) : 0;
     annotations.push({
       xref: 'x',
       yref: 'y',
-      x: String(year),
+      x: yi,
       y: name,
       text: `${c.mean.toFixed(1)}${c.incomplete ? '†' : ''}`,
       showarrow: false,
@@ -1357,7 +1357,7 @@ function renderStory3Monthly(model, target) {
   ], {
     title: story3Title(`${p}: month-by-year pooled mean`, 'Left: each month and year. Right: all-years average (red = highest month, blue = lowest).'),
     showlegend: false,
-    xaxis: { domain: [0, 0.74], type: 'category', title: 'Calendar year', anchor: 'y' },
+    xaxis: { domain: [0, 0.74], type: 'category', categoryorder: 'array', categoryarray: years.map(String), range: [-0.5, years.length - 0.5], tickmode: 'array', tickvals: years.map((_, yi) => yi), ticktext: years.map(String), title: 'Calendar year', anchor: 'y' },
     yaxis: { type: 'category', categoryorder: 'array', categoryarray: STORY3_MONTHS, autorange: 'reversed', anchor: 'x' },
     xaxis2: { domain: [0.8, 1], anchor: 'y2', range: [0, avgMax * 1.35], showgrid: false, zeroline: false, showticklabels: false, title: 'All-years mean' },
     yaxis2: { type: 'category', categoryorder: 'array', categoryarray: STORY3_MONTHS, autorange: 'reversed', anchor: 'x2', showticklabels: false },
@@ -1657,26 +1657,14 @@ function renderStory3Seasonal(model, target) {
   const traces = [
     connectors,
     {
-      ...dots(context, 'Spring and autumn (context)', STORY3_COLORS.context, 'circle', 8),
+      ...dots(context, 'Spring / autumn', STORY3_COLORS.context, 'circle', 8),
       marker: { color: context.map((i) => (i.g.ok ? STORY3_COLORS.context : '#ffffff')), size: 8, line: { color: STORY3_COLORS.context, width: 1.5 } },
     },
-    dots(winter, 'Winter (Dec–Feb)', STORY3_COLORS.winter, 'circle', mobile ? 12 : 14),
-    dots(summer, 'Summer (Jun–Aug)', STORY3_COLORS.summer, 'diamond', mobile ? 12 : 14),
+    dots(winter, 'Winter', STORY3_COLORS.winter, 'circle', mobile ? 12 : 14),
+    dots(summer, 'Summer', STORY3_COLORS.summer, 'diamond', mobile ? 12 : 14),
     {
-      ...dots(skipped, 'Not compared (incomplete or low coverage)', '#ffffff', 'circle', mobile ? 12 : 14),
-      marker: { color: '#ffffff', size: mobile ? 12 : 14, symbol: skipped.map((i) => (i.g.season === 'Winter' ? 'circle' : 'diamond')), line: { color: '#4a5568', width: 2 } },
-    },
-    {
-      type: 'scatter',
-      mode: 'text',
-      x: gapRows.map((g) => Math.max(g.winter, g.summer)),
-      y: gapRows.map((g) => label(g.year)),
-      text: gapRows.map((g) => `<b>${story3Signed(g.diff)}</b>`),
-      textposition: 'middle right',
-      cliponaxis: false,
-      textfont: { size: mobile ? 11 : 13, color: STORY3_COLORS.ink },
-      showlegend: false,
-      hoverinfo: 'skip',
+      ...dots(skipped, 'Incomplete', '#ffffff', 'circle', mobile ? 12 : 14),
+      marker: { color: '#ffffff', size: mobile ? 12 : 14, symbol: skipped.map((i) => (i.g.season === 'Winter' ? 'circle' : 'diamond')), line: { color: skipped.map((i) => (i.g.season === 'Winter' ? STORY3_COLORS.winter : STORY3_COLORS.summer)), width: 2 } },
     },
   ];
   const xs = [...context, ...winter, ...summer, ...skipped].map((i) => i.x);
@@ -1684,13 +1672,25 @@ function renderStory3Seasonal(model, target) {
   const hi = Math.max(...xs);
   const span = hi - lo || 1;
   const sub = s.gaps.length
-    ? `Labels = winter minus summer. Average over ${story3Years(s.comparable)}: ${story3Signed(s.meanGap)}. † = year not compared.`
+    ? `Winter − summer; average ${story3Signed(s.meanGap)}. † = year not compared.`
     : 'No comparable winter–summer years.';
   story3Plot(target, traces, {
     title: story3Title(`${p}: winter vs summer by year`, sub),
-    xaxis: { title: `${p} pooled mean (units as recorded; not verified)`, range: [lo - span * 0.08, hi + span * 0.18], gridcolor: '#eef1f6', zeroline: false },
-    yaxis: { type: 'category', categoryorder: 'array', categoryarray: labels, autorange: 'reversed', automargin: true, showgrid: false },
-    legend: { orientation: 'h', x: 0, y: -0.2, yanchor: 'top', font: { size: mobile ? 10 : 12 } },
+    xaxis: { domain: [0, 0.8], title: `${p} pooled mean (units unverified)`, range: [lo - span * 0.1, hi + span * 0.1], gridcolor: '#eef1f6', zeroline: false },
+    yaxis: { type: 'category', categoryorder: 'array', categoryarray: labels, autorange: 'reversed', automargin: true, showgrid: false, tickfont: { size: mobile ? 12 : 14 } },
+    annotations: gapRows.map((g) => ({
+      xref: 'paper', x: 0.9, xanchor: 'center',
+      yref: 'y', y: s.years.indexOf(g.year), yanchor: 'middle',
+      text: `<b>${story3Signed(g.diff)}</b>`, showarrow: false,
+      font: { size: mobile ? 12 : 14, color: STORY3_COLORS.ink },
+    })),
+    shapes: skipped.filter((i) => i.g.season === 'Winter').map((i) => ({
+      type: 'rect', xref: 'paper', x0: 0, x1: 1, yref: 'y',
+      y0: s.years.indexOf(i.g.year) - 0.5, y1: s.years.indexOf(i.g.year) + 0.5,
+      fillcolor: '#f2f4f8', line: { width: 0 }, layer: 'below',
+    })),
+    legend: { orientation: 'h', x: 0, y: -0.3, yanchor: 'top', font: { size: mobile ? 10 : 12 } },
+    margin: { t: 84, r: mobile ? 12 : 24, b: 100, l: mobile ? 48 : 64 },
   });
 }
 
@@ -1799,6 +1799,7 @@ function renderStory3Stations(model, target) {
   const hi = xs.length ? Math.max(...xs) : 1;
   const span = hi - lo || 1;
   const sel = order.indexOf(story3State.station);
+  const selected = have.find((x) => x.station === story3State.station);
   const traces = [
     {
       type: 'scatter',
@@ -1809,6 +1810,15 @@ function renderStory3Stations(model, target) {
       hoverinfo: 'skip',
       showlegend: false,
     },
+    ...(selected ? [{
+      type: 'scatter',
+      mode: 'lines',
+      x: [selected.w.mean, selected.s.mean],
+      y: [selected.station, selected.station],
+      line: { color: '#cbd5e0', width: 6 },
+      hoverinfo: 'skip',
+      showlegend: false,
+    }] : []),
     dots('s', 'Summer', STORY3_COLORS.summer, 'diamond'),
     dots('w', 'Winter', STORY3_COLORS.winter, 'circle'),
     {
@@ -1832,8 +1842,8 @@ function renderStory3Stations(model, target) {
     },
   ];
   story3Plot(target, traces, {
-    title: story3Title(`${p}: winter vs summer by station`, `Same years for every station: ${story3Years(st.years)}. Sorted by winter minus summer. † = incomplete record.`),
-    xaxis: { title: `${p} pooled mean (units as recorded; not verified)`, range: [lo - span * 0.06, hi + span * 0.06], gridcolor: '#eef1f6', zeroline: false },
+    title: story3Title(`${p}: winter vs summer by station`, `Same years: ${story3Years(st.years)}. Right: winter − summer, sorted largest first. † = incomplete record.`),
+    xaxis: { title: `${p} pooled mean (units as recorded; not verified)`, range: [lo - span * 0.12, hi + span * 0.12], gridcolor: '#eef1f6', zeroline: false },
     yaxis: {
       type: 'category',
       categoryorder: 'array',
@@ -1842,13 +1852,20 @@ function renderStory3Stations(model, target) {
       tickmode: 'array',
       tickvals: order,
       ticktext: st.list.map(tick),
-      tickfont: { size: mobile ? 10 : 12 },
+      tickfont: { size: mobile ? 11 : 13 },
       automargin: true,
       gridcolor: '#f2f4f8',
       showgrid: true,
     },
-    shapes: sel >= 0 ? [{ type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: sel - 0.5, y1: sel + 0.5, fillcolor: '#fff3bf', opacity: 0.75, line: { width: 0 }, layer: 'below' }] : [],
-    margin: { t: 84, r: mobile ? 12 : 24, b: 78, l: mobile ? 96 : 120 },
+    annotations: have.map((x) => ({
+      xref: 'paper', x: 1, xanchor: 'left', xshift: 8,
+      yref: 'y', y: x.station, yanchor: 'middle',
+      text: x.station === story3State.station ? `<b>${story3Signed(x.diff)}</b>` : story3Signed(x.diff),
+      showarrow: false,
+      font: { size: mobile ? 11 : 12, color: '#1a1f2e' },
+    })),
+    shapes: sel >= 0 ? [{ type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: sel - 0.5, y1: sel + 0.5, fillcolor: '#ffe08a', opacity: 0.85, line: { width: 0 }, layer: 'below' }] : [],
+    margin: { t: 84, r: mobile ? 60 : 68, b: 78, l: mobile ? 96 : 120 },
   });
 }
 
@@ -1985,18 +2002,32 @@ function renderStory3Limits(model, data, target) {
   const heading = document.createElement('h3');
   heading.className = 'story3-panel-heading';
   heading.textContent = `${p}: what the data support`;
-  const findings = document.createElement('ol');
+  const findings = document.createElement('div');
   findings.className = 'story3-findings';
-  model.findings.forEach((f) => {
-    const li = document.createElement('li');
-    const strong = document.createElement('strong');
-    strong.textContent = f.title;
-    const text = document.createElement('span');
+  const finding = (f, className) => {
+    const section = document.createElement('section');
+    section.className = className;
+    const title = document.createElement('h4');
+    title.textContent = f.title;
+    const text = document.createElement('p');
     text.textContent = f.text;
-    li.append(strong, text);
-    findings.appendChild(li);
-  });
+    section.append(title, text);
+    return section;
+  };
+  findings.appendChild(finding(model.findings[1], 'story3-conclusion'));
+  const supporting = document.createElement('div');
+  supporting.className = 'story3-supporting';
+  const supportingHeading = document.createElement('h4');
+  supportingHeading.textContent = 'Supporting evidence';
+  supporting.appendChild(supportingHeading);
+  [model.findings[0], model.findings[2]].forEach((f) => supporting.appendChild(finding(f, 'story3-supporting-finding')));
+  findings.appendChild(supporting);
   const pct = (x) => (x === null ? 'n/a' : `${(x * 100).toFixed(1)}%`);
+  const coverage = document.createElement('section');
+  coverage.className = 'story3-coverage';
+  const coverageHeading = document.createElement('h4');
+  coverageHeading.textContent = 'Data coverage';
+  coverage.appendChild(coverageHeading);
   const indicators = document.createElement('div');
   indicators.className = 'story3-indicators';
   [
@@ -2018,7 +2049,8 @@ function renderStory3Limits(model, data, target) {
     card.append(big, text);
     indicators.appendChild(card);
   });
-  target.append(heading, findings, indicators);
+  coverage.appendChild(indicators);
+  target.append(heading, findings);
   const cautions = [];
   if (p === 'O3') cautions.push('O3 results are preliminary. Source-data concerns for this pollutant are not resolved, so read its findings cautiously.');
   s.outliers.forEach((o) => cautions.push(`The ${o.year} winter–summer gap (${story3Signed(o.diff)}) is ${o.ratio.toFixed(1)} times the median of the other years; its source data have not been checked.`));
@@ -2032,6 +2064,7 @@ function renderStory3Limits(model, data, target) {
     });
     target.appendChild(box);
   }
+  target.appendChild(coverage);
 }
 
 
